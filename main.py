@@ -12,6 +12,7 @@ from ai.news_summary import run_summary
 from core import CommandGroup
 from core.file_reading import build_attachment_context
 from utils.logger import setup_logging
+from utils.sentiment import analyze_sentiment, get_mood_emoji
 from config import (
     COOLDOWN_SECONDS, COOLDOWN_REPLY_DELAY, RPC_UPDATE_INTERVAL,
     TEMPERATURE, MAX_OUTPUT_TOKENS, MAX_HISTORY, NEWS_REFRESH_SECONDS
@@ -247,6 +248,15 @@ async def on_message(message):
                 max_output_tokens=MAX_OUTPUT_TOKENS,
             )
             
+            # Inovasi: Analisis Sentimen & Mood Tracker
+            sentiment = analyze_sentiment(cleaned)
+            if sentiment != "netral":
+                emoji = get_mood_emoji(sentiment)
+                logger.info(f"[SENTIMENT] User mood detected: {sentiment} {emoji}")
+                # Tambahkan sentuhan empati ekstra jika negatif
+                if sentiment == "negatif" and not any(word in reply.lower() for word in ["sabar", "semangat", "peduli"]):
+                    reply += f"\n\n*Mirai memperhatikanmu sepertinya sedang kurang baik hari ini {emoji}. Tetap semangat ya, aku di sini untuk mendengarkan.*"
+
             # Save response to memory
             add_message("assistant", reply)
 
