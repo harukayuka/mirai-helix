@@ -1,0 +1,8 @@
+discord.py
+python-dotenv
+requests
+pypdf
+python-docx
+openpyxl
+python-pptx
+pytz
