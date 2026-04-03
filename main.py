@@ -13,6 +13,7 @@ from core import CommandGroup
 from core.file_reading import build_attachment_context
 from utils.logger import setup_logging
 from utils.sentiment import analyze_sentiment, get_mood_emoji
+from utils.wellness import get_wellness_reminder, should_give_reminder
 from config import (
     COOLDOWN_SECONDS, COOLDOWN_REPLY_DELAY, RPC_UPDATE_INTERVAL,
     TEMPERATURE, MAX_OUTPUT_TOKENS, MAX_HISTORY, NEWS_REFRESH_SECONDS
@@ -256,6 +257,12 @@ async def on_message(message):
                 # Tambahkan sentuhan empati ekstra jika negatif
                 if sentiment == "negatif" and not any(word in reply.lower() for word in ["sabar", "semangat", "peduli"]):
                     reply += f"\n\n*Mirai memperhatikanmu sepertinya sedang kurang baik hari ini {emoji}. Tetap semangat ya, aku di sini untuk mendengarkan.*"
+
+            # Inovasi: Health & Wellness Reminders
+            if should_give_reminder(0.2):  # 20% peluang memberikan pengingat kesehatan
+                reminder = get_wellness_reminder()
+                logger.info(f"[WELLNESS] Health reminder triggered: {reminder}")
+                reply += f"\n\n--- \n💡 **Mirai Wellness Tip:** {reminder}"
 
             # Save response to memory
             add_message("assistant", reply)
