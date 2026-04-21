@@ -1,0 +1,7 @@
+{
+    "calculator": true,
+    "weather": true,
+    "news": true,
+    "greeting": true,
+    "qwen": true
+}

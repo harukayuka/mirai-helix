@@ -1,0 +1,45 @@
+{
+  "1267791545155846194": {
+    "user_id": "1267791545155846194",
+    "personality": "Ceria",
+    "interests": [],
+    "mood_summary": "Membawa suasana positif dan hangat",
+    "notable_facts": [],
+    "exp": 100,
+    "last_updated": "2026-04-21 19:36:31 WIB",
+    "human_meta": "Profil ini diperbarui pada Tuesday, 21 April 2026 pukul 19:36."
+  },
+  "1068859686754996305": {
+    "user_id": "1068859686754996305",
+    "personality": "Melankolis",
+    "interests": [
+      "Pembelajaran",
+      "Rekreasi",
+      "Aktivitas di tempat kerja"
+    ],
+    "mood_summary": "Cemas dan frustrasi, terutama karena kesulitan dalam melakukan aktivitas sehari-hari setelah kembali dari reis panjang",
+    "notable_facts": [
+      "User memiliki kesulitan untuk melakukan aktivitas sehari-hari setelah kembali dari reis panjang",
+      "User merasa cemas dan frustrasi terutama dalam melakukan pembelajaran dan rekreasi"
+    ],
+    "exp": 20,
+    "last_updated": "2026-04-21 23:12:46 WIB",
+    "human_meta": "Profil ini diperbarui pada Tuesday, 21 April 2026 pukul 23:12."
+  },
+  "1471100790197457040": {
+    "user_id": "1471100790197457040",
+    "personality": "Melankolis",
+    "interests": [
+      "Belajar",
+      "Menyukai tempat belajar sebagai kebahagiaan"
+    ],
+    "mood_summary": "Sedih dan kehausan perkenalan orang yang memiliki minat yang sama",
+    "notable_facts": [
+      "Tidak suka berinteraksi dengan orang yang tidak memiliki minat belajar",
+      "Mencari teman yang memiliki minat belajar untuk menghilangkan kesepian"
+    ],
+    "exp": 20,
+    "last_updated": "2026-04-21 23:12:46 WIB",
+    "human_meta": "Profil ini diperbarui pada Tuesday, 21 April 2026 pukul 23:12."
+  }
+}
