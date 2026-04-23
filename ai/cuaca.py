@@ -45,7 +45,8 @@ class BMKGClient:
 
         try:
             # 1. Ambil daftar provinsi
-            prov_resp = self.session.get(f"{WILAYAH_API_BASE}/provinces.json")
+            prov_resp = self.session.get(f"{WILAYAH_API_BASE}/provinces.json", timeout=10)
+            prov_resp.raise_for_status()
             provinces = prov_resp.json()
             
             # 2. Cari kabupaten/kota di provinsi yang relevan (opsional, tapi untuk akurasi)
@@ -103,7 +104,7 @@ class BMKGClient:
                 return None
                 
             # Ambil 3 data prakiraan terdekat (per 3 jam) untuk konteks lebih kaya
-            forecasts = weather_list[0][:3]
+            forecasts = weather_list[:3]
             
             return {
                 "lokasi": {

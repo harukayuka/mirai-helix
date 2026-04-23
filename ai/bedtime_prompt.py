@@ -5,7 +5,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai.gemini import GeminiClient
-from memory import get_history
+
 
 gemini_client = GeminiClient()
 
@@ -18,7 +18,9 @@ async def generate_bedtime_message():
     
     try:
         # Generate response using Gemini
-        response = await asyncio.to_thread(gemini_client.generate, [{'role': 'user', 'parts': [prompt]}])
+        response = await gemini_client.generate([
+            {"role": "user", "parts": [{"text": prompt}]}
+        ])
         return response
     except Exception as e:
         print(f"[Gemini Bedtime] Error generating message: {e}")

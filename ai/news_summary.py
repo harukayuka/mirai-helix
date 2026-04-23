@@ -50,7 +50,11 @@ def _fetch_rss_news() -> List[Dict[str, str]]:
     for media_name, url in RSS_FEEDS.items():
         try:
             logger.info(f"[RSS] Mengambil berita dari {media_name}...")
-            feed = feedparser.parse(url)
+            # Ambil RSS dengan timeout agar tidak menggantung
+            import requests
+            resp = requests.get(url, headers={"User-Agent": "MiraiBot/1.0"}, timeout=10)
+            resp.raise_for_status()
+            feed = feedparser.parse(resp.content)
             # Ambil maksimal 2 berita per media
             entries = feed.entries[:2]
             for entry in entries:
