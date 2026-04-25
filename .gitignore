@@ -1,0 +1,22 @@
+# Environment
+.env
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Data yang di-generate
+core/history.json
+core/monitor.py
+data/online_counters.json
+data/qwen_user/
+data/reminders.json
+
+# File sementara / log
+fix-planning/
+fix.md
+history.json
+plainning.md
+planning.md
+script.zip
