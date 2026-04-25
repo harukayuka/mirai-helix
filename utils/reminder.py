@@ -1,3 +1,5 @@
+from zoneinfo import ZoneInfo
+WIB = ZoneInfo('Asia/Jakarta')
 import asyncio
 import datetime
 import json
@@ -6,11 +8,13 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ai.bedtime_prompt import generate_bedtime_message
 
+
 class ReminderManager:
     def __init__(self, bot):
         self.bot = bot
         self.reminders = {}
         self.reminder_file = 'data/reminders.json'
+        self._tasks = {}  # Store references to running tasks
         self._load_reminders()
 
     def _load_reminders(self):
@@ -21,8 +25,9 @@ class ReminderManager:
             self.reminders = {}
 
     def _save_reminders(self):
+        # Simpan reminder ke file JSON dengan format rapi
         with open(self.reminder_file, 'w') as f:
-                json.dump(self.reminders, f, indent=4)
+            json.dump(self.reminders, f, indent=4)
 
     async def start_reminder(self, guild_id, channel_id):
         guild_id_str = str(guild_id)
@@ -35,10 +40,10 @@ class ReminderManager:
         if guild_id_str in self.reminders:
             self.reminders[guild_id_str]['active'] = False
             self._save_reminders()
-            # Cancel any pending tasks for this guild
-            for task in asyncio.all_tasks():
-                if task.get_name() == f'bedtime_reminder_{guild_id}':
-                    task.cancel()
+            # Cancel the task if it exists
+            if guild_id_str in self._tasks:
+                self._tasks[guild_id_str].cancel()
+                del self._tasks[guild_id_str]
             return True
         return False
 
@@ -53,7 +58,12 @@ class ReminderManager:
         if not self.reminders.get(guild_id_str, {}).get('active'):
             return
 
-        now = datetime.datetime.now()
+        # Cancel existing task if any
+        if guild_id_str in self._tasks and not self._tasks[guild_id_str].done():
+            self._tasks[guild_id_str].cancel()
+
+        # Gunakan zona waktu WIB untuk konsistensi jadwal
+        now = datetime.datetime.now(WIB)
         target_time = now.replace(hour=21, minute=0, second=0, microsecond=0)
 
         if now >= target_time:
@@ -62,7 +72,11 @@ class ReminderManager:
 
         delay = (target_time - now).total_seconds()
 
-        asyncio.create_task(self._send_reminder_after_delay(guild_id, delay), name=f'bedtime_reminder_{guild_id}')
+        task = asyncio.create_task(
+            self._send_reminder_after_delay(guild_id, delay),
+            name=f'bedtime_reminder_{guild_id}'
+        )
+        self._tasks[guild_id_str] = task
 
     async def _send_reminder_after_delay(self, guild_id, delay):
         guild_id_str = str(guild_id)

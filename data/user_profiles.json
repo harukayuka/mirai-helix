@@ -41,5 +41,21 @@
     "exp": 20,
     "last_updated": "2026-04-21 23:12:46 WIB",
     "human_meta": "Profil ini diperbarui pada Tuesday, 21 April 2026 pukul 23:12."
+  },
+  "🏛 Archon": {
+    "user_id": "🏛 Archon",
+    "personality": "Tertarik dengan kebebasan, kurang terlihat dengan emosinya",
+    "interests": [
+      "makan",
+      "menghabiskan banyak waktu untuk kegiatan"
+    ],
+    "mood_summary": "Dapat terlihat sedang dalam suasana hati yang santai",
+    "notable_facts": [
+      "- Memberikan jawaban singkat ketika di tanya.",
+      "- Menggunakan kata-kata tidak lengkap dalam percakapan (mungkin karena masih mencoba mengajak pembicaraan)"
+    ],
+    "exp": 80,
+    "last_updated": "2026-04-23 01:14:19 WIB",
+    "human_meta": "Profil ini diperbarui pada Thursday, 23 April 2026 pukul 01:14."
   }
 }

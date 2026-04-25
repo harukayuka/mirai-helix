@@ -23,7 +23,7 @@ class Router:
         self.online_counter_manager = OnlineCounterManager(bot)
         
         # Initialize Handlers
-        self.message_handler = MessageHandler(bot, self.ai_service, self.cooldown_manager)
+        self.message_handler = MessageHandler(bot, self.ai_service, self.cooldown_manager, self.micro_rag)
         
         # Initialize Commands
         self.command_group = CommandGroup(bot)
@@ -44,6 +44,12 @@ class Router:
         @self.bot.event
         async def on_ready():
             logger.info("✅ Bot connected as %s", self.bot.user)
+            # Initialize AutoGreeting singleton for greeting commands
+            from core.auto_greeting import AutoGreeting
+            from ai.gemini import GeminiClient
+            # Buat instance global yang dapat di‑import oleh command
+            global auto_greeting
+            auto_greeting = AutoGreeting(self.bot, GeminiClient())
             guild_id = os.getenv("GUILD_ID")
             if guild_id:
                 await self.command_group.sync_commands(guild_id=int(guild_id))

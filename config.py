@@ -1,3 +1,4 @@
+import os
 # config.py - Konfigurasi default untuk Mirai Bot
 
 # ===== MEMORY CONFIG =====
@@ -35,6 +36,11 @@ MAX_KEY_WAIT = 120  # Maksimal tunggu semua key cooldown (detik)
 KEY_COOLDOWN_DURATION = 60  # Durasi cooldown per key saat rate limit (detik)
 
 # ===== NEWS SUMMARY CONFIG =====
+
+# Webhook URL untuk monitoring sistem (opsional)
+# Channel ID untuk mengirim embed peringatan CPU tinggi (opsional)
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
+ALERT_CHANNEL_ID = int(os.getenv('ALERT_CHANNEL_ID', '0') or '0')
 NEWS_SOURCE_URL = "https://raw.githubusercontent.com/harukayuka2/news-mirai/main/data/berita.json"
 NEWS_JSON_PATH = "data/berita.json"
 NEWS_SUMMARY_PATH = "data/summary.json"

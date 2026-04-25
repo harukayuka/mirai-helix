@@ -29,6 +29,7 @@ Discord bot pintar dengan kepribadian "Mirai" yang bijaksana, kritis, namun teta
 ### Perbaikan Bug & Validasi
 - Menangani `AttributeError` pada command handler ketika channel tidak valid.
 - Validasi tambahan untuk ID channel yang tidak ada atau bot tidak memiliki permission.
+- Menghilangkan emoji di awal respons AI (Gemini & Groq) untuk tampilan lebih kaku dan profesional.
 
 ## 🛠️ Teknologi
 

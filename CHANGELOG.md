@@ -12,7 +12,8 @@
 - Validasi tambahan untuk ID channel yang tidak ada atau bot tidak memiliki permission.
 
 ### 🔄 Changed
-- Prioritas pengiriman laporan kini: **Paksa > Channel yang dipilih user > Channel default**.
+- Prioritas pengiriman laporan kini: **Paksa > Channel yang dipilih user > Channel default**
+- Menghilangkan emoji di awal respons AI (Gemini & Groq) untuk tampilan lebih kaku dan profesional.
 
 ## [2.4.0] - 2026-04-20
 ### ✨ Added

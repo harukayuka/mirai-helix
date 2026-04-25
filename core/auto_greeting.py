@@ -109,7 +109,7 @@ class AutoGreeting:
                     welcome_msg = None
                     try:
                         # Coba generate dengan AI
-                        welcome_msg = await asyncio.to_thread(self.gemini.generate_welcome, member.display_name)
+                        welcome_msg = await self.gemini.generate_welcome(member.display_name)
                     except Exception as api_err:
                         logger.warning(f"[WELCOME] API Error/Limit: {api_err}. Using fallback.")
                     
@@ -147,7 +147,7 @@ class AutoGreeting:
                 goodbye_msg = None
                 try:
                     # Coba generate dengan AI
-                    goodbye_msg = await asyncio.to_thread(self.gemini.generate_goodbye, member.display_name)
+                    goodbye_msg = await self.gemini.generate_goodbye(member.display_name)
                 except Exception as api_err:
                     logger.warning(f"[GOODBYE] API Error/Limit: {api_err}. Using fallback.")
                 

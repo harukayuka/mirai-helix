@@ -5,6 +5,7 @@ LLMHandler: Mengatur request AI dengan mekanisme fallback otomatis.
 2. Fallback: Groq (Llama 3) jika Gemini error 400/500.
 """
 import os
+import re
 import time
 import aiohttp
 from typing import List, Dict, Optional
@@ -93,16 +94,14 @@ class LLMHandler:
             # atau gunakan to_thread jika perlu. Di sini kita panggil langsung sesuai pola main.py
             import asyncio
             # Jalankan di thread pool agar tidak blocking event loop
-            response = await asyncio.get_event_loop().run_in_executor(
-                None, 
-                lambda: self.gemini_client.generate(history, temperature=temperature, user_context=user_context)
-            )
+            response = await self.gemini_client.generate(history, temperature=temperature, user_context=user_context)
             
             # Cek apakah respons adalah error string (fallback manual jika Gemini return string error tertentu)
             if response and "⚠️" in response and "API key" in response:
                  raise RuntimeError("Gemini returned API key error indicator.")
             
-            return response
+            clean_response = re.sub(r'^[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251]+', '', response).strip()
+            return clean_response
             
         except aiohttp.ClientResponseError as e:
             # Tangkap error HTTP spesifik jika ada (meski gemini.py pakai requests, jadi jarang terjadi di sini)
@@ -138,7 +137,8 @@ class LLMHandler:
                 # Panggil Groq
                 response = await self.groq_client.generate_completion(messages, temperature=temperature)
                 logger.info("[LLMHandler] Berhasil mendapatkan respons dari Groq.")
-                return response
+                clean_response = re.sub(r'^[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251]+', '', response).strip()
+                return clean_response
                 
             except Exception as groq_err:
                 # Jika Groq juga gagal, lempar error gabungan

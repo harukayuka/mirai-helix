@@ -72,13 +72,13 @@ class CommandGroup:
                 user_msg = f"{user_name}: {pertanyaan}"
                 # Simpan ke history global
                 from memory import add_message
-                add_message("user", user_msg)
+                await add_message("user", user_msg)
                 # Ambil history
                 history = get_history()
                 # Generate respons
-                reply = await asyncio.to_thread(gemini.generate, history)
+                reply = await gemini.generate(history)
                 # Simpan respons bot
-                add_message("assistant", reply)
+                await add_message("assistant", reply)
                 # Kirim balasan
                 await interaction.followup.send(reply, ephemeral=private)
             except Exception as e:
@@ -456,7 +456,7 @@ class CommandGroup:
                 )
                 await interaction.followup.send(embed=embed, ephemeral=True)
 
-        # forced_channel command removed, description="Set channel paksa untuk hasil analisis Qwen (Admin only)")
+        @qwen_group.command(name="forced_channel", description="Set channel paksa untuk hasil analisis Qwen (Admin only)")
         @app_commands.describe(
             channel="Channel tujuan paksa untuk semua hasil analisis",
             action="Aksi yang ingin dilakukan: set atau remove"
@@ -647,7 +647,7 @@ class CommandGroup:
                 await interaction.response.send_message("⚠️ Reminder manager belum diinisialisasi.", ephemeral=True)
                 return
             if await reminder_manager.stop_reminder(interaction.guild_id):
-                await interaction.response.send_message("❌ Pengingat waktu tidur dinonaktifkan.", ephemeral=True)
+                await interaction.response.send_message("✅ Pengingat waktu tidur dinonaktifkan.", ephemeral=True)
             else:
                 await interaction.response.send_message("ℹ️ Pengingat waktu tidur tidak aktif di server ini.", ephemeral=True)
 
@@ -687,7 +687,7 @@ class CommandGroup:
                 await interaction.response.send_message("⚠️ Online counter manager belum diinisialisasi.", ephemeral=True)
                 return
             if await online_counter_manager.stop_counter(interaction.guild_id):
-                await interaction.response.send_message("❌ Penghitung user online dinonaktifkan.", ephemeral=True)
+                await interaction.response.send_message("✅ Penghitung user online dinonaktifkan.", ephemeral=True)
             else:
                 await interaction.response.send_message("ℹ️ Penghitung user online tidak aktif di server ini.", ephemeral=True)
 
@@ -710,7 +710,7 @@ class CommandGroup:
 
         @greeting_group.command(name="status", description="Cek status fitur greeting di server ini")
         async def greeting_status(interaction: discord.Interaction):
-            from main import auto_greeting
+            from core.auto_greeting import auto_greeting
             enabled = auto_greeting.is_enabled(interaction.guild_id)
             config = auto_greeting._load_config()
             guild_config = config.get("guilds", {}).get(str(interaction.guild_id), {})
@@ -732,7 +732,7 @@ class CommandGroup:
         ])
         @app_commands.default_permissions(administrator=True)
         async def greeting_toggle(interaction: discord.Interaction, status: app_commands.Choice[str]):
-            from main import auto_greeting
+            from core.auto_greeting import auto_greeting
             is_enabled = status.value == "enable"
             auto_greeting.set_enabled(interaction.guild_id, is_enabled)
             msg = "✅ Fitur greeting telah **diaktifkan**." if is_enabled else "❌ Fitur greeting telah **dinonaktifkan**."
@@ -742,7 +742,7 @@ class CommandGroup:
         @app_commands.describe(channel="Pilih channel untuk pesan greeting")
         @app_commands.default_permissions(administrator=True)
         async def greeting_setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
-            from main import auto_greeting
+            from core.auto_greeting import auto_greeting
             auto_greeting.set_channel(interaction.guild_id, channel.id)
             await interaction.response.send_message(f"✅ Channel greeting telah diatur ke {channel.mention}.", ephemeral=True)
 
@@ -768,7 +768,8 @@ class CommandGroup:
                 app_commands.Choice(name="Calculator", value="calculator"),
                 app_commands.Choice(name="Weather", value="weather"),
                 app_commands.Choice(name="News", value="news"),
-                app_commands.Choice(name="Greeting", value="greeting")
+                app_commands.Choice(name="Greeting", value="greeting"),
+                app_commands.Choice(name="Wellness", value="wellness")  # Tambahkan wellness
             ],
             status=[
                 app_commands.Choice(name="Aktifkan", value="enable"),

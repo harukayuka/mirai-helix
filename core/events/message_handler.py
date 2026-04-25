@@ -11,15 +11,17 @@ from utils.wellness import get_wellness_reminder, should_give_reminder
 from core.file_reading import build_attachment_context
 import core.qwen_batch as qwen_batch
 from config import COOLDOWN_REPLY_DELAY
+from core.module_manager import module_manager
 
 logger = setup_logging()
 WIB = ZoneInfo("Asia/Jakarta")
 
 class MessageHandler:
-    def __init__(self, bot, ai_service, cooldown_manager):
+    def __init__(self, bot, ai_service, cooldown_manager, micro_rag):
         self.bot = bot
         self.ai = ai_service
         self.cooldown = cooldown_manager
+        self.micro_rag = micro_rag
 
     def clean_message(self, content):
         """Bersihkan pesan dari mention bot."""
@@ -69,6 +71,8 @@ class MessageHandler:
         channel_id: int,
         cleaned_message: str,
         timestamp: str,
+        server_name: str | None = None,
+        server_id: int | None = None,
         attachment_context: str = ""
     ) -> str:
         """
@@ -83,10 +87,15 @@ class MessageHandler:
             f"Timestamp: {timestamp}\n"
             f"Message: {cleaned_message}"
         )
+        if server_name:
+            context += f"\nServer: {server_name}"
+        if server_id:
+            context += f"\nServer ID: {server_id}"
         
         if attachment_context:
             context += f"\n\n[Attachment Context]\n{attachment_context}"
-        
+        # Instruksi eksplisit agar Gemini menyebutkan nama pengguna dan tidak menyebutkan ID
+        context += "\n\nInstruksi: Selalu gunakan nama Display Name di atas saat menyapa pengguna. Jangan menyebutkan atau menanyakan ID pengguna dalam balasan."
         return context
 
     async def _save_to_history(
@@ -203,11 +212,18 @@ class MessageHandler:
             # STEP 6: Generate reply dengan context yang benar
             async with message.channel.typing():
                 # Build user message untuk history
-                user_msg = f"{user_name} ({role_name}): {cleaned}"
+                # Buat pesan user yang lengkap dengan semua info yang dibutuhkan
+                user_msg = (
+                    f"{user_name} ({role_name}) | ID: {user_id}\n"
+                    f"Channel: {channel_name} (ID: {channel_id})\n"
+                    f"Server: {server_name or 'DM'} (ID: {server_id or 'N/A'})\n"
+                    f"Timestamp: {message.created_at.isoformat()}\n"
+                    f"Message: {cleaned}"
+                )
                 if attachment_context:
                     user_msg += f"\n\n[Attachments Context]\n{attachment_context}"
                 
-                self.ai.add_to_history("user", user_msg)
+                await self.ai.add_to_history("user", user_msg)
                 history = self.ai.get_history()
                 
                 # Build context untuk Gemini (PERBAIKAN: structured format)
@@ -218,8 +234,14 @@ class MessageHandler:
                     channel_id=channel_id,
                     cleaned_message=cleaned,
                     timestamp=message.created_at.isoformat(),
+                    server_name=server_name,
+                    server_id=server_id,
                     attachment_context=attachment_context
                 )
+                # Tambahkan konteks profil user dari Micro‑RAG (personality, interests, mood, dll.)
+                rag_context = self.micro_rag.get_user_context(str(user_id))
+                if rag_context:
+                    user_context += rag_context
                 
                 # Generate reply dari Gemini
                 reply = await self.ai.generate_reply(history, user_context=user_context)
@@ -230,11 +252,15 @@ class MessageHandler:
                 # if mood_emoji:
                 #    reply = f"{mood_emoji} {reply}"
 
-                if should_give_reminder():
+                # Tambahkan wellness hanya bila belum ada dalam balasan
+                # Cek apakah wellness diaktifkan di module manager
+                if should_give_reminder() and module_manager.is_enabled("wellness"):
                     wellness = get_wellness_reminder()
-                    reply = f"{reply}\n\n---\n💡 *Mirai Wellness:* {wellness}"
+                    # Cek apakah wellness sudah ada (case‑insensitive) untuk menghindari duplikasi
+                    if wellness and wellness.lower() not in reply.lower():
+                        reply = f"{reply}\n\n---\n💡 *Mirai Wellness:* {wellness}"
 
-                self.ai.add_to_history("assistant", reply)
+                await self.ai.add_to_history("assistant", reply)
                 
                 # Send response ke user (no mention)
                 await self._send_long_message(message.channel, reply, reply_to=message)

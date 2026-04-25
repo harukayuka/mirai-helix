@@ -1,7 +1,8 @@
 {
-    "calculator": true,
-    "weather": true,
-    "news": true,
-    "greeting": true,
-    "qwen": true
+    "calculator": false,
+    "weather": false,
+    "news": false,
+    "greeting": false,
+    "qwen": false,
+    "wellness": false
 }

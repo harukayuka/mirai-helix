@@ -122,9 +122,10 @@ async def _reset_503_counter():
     async with _circuit_breaker_lock:
         _circuit_breaker_failures = 0
 
-def _is_circuit_breaker_active() -> bool:
-    """Check if circuit breaker is currently active."""
-    return time.time() < _circuit_breaker_until
+async def _is_circuit_breaker_active() -> bool:
+    """Check if circuit breaker is currently active with lock safety."""
+    async with _circuit_breaker_lock:
+        return time.time() < _circuit_breaker_until
 
 # ----------------------------------------------------------------------
 # 3️⃣  GeminiClient (async)
@@ -132,23 +133,21 @@ def _is_circuit_breaker_active() -> bool:
 class GeminiClient:
     """Async client for Google Gemini API with advanced features."""
     
-    _CACHE: dict = {}          # key → (timestamp, response)
-    _CACHE_TTL = 300           # 5 menit
-    _KEY_COOLDOWN: dict = {}   # api_key → timestamp kembali tersedia
-    _cache_lock = asyncio.Lock()  # FIXED: Added lock for cache thread safety
-
     def __init__(self):
         raw_keys = os.getenv("GEMINI_KEYS", "")
         self.api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
         if not self.api_keys:
             raise ValueError("❌ Tidak ada GEMINI_KEYS di .env!")
-        
         self.key_index = 0
         self.api_key = self.api_keys[0]
         self.endpoint = f"{BASE_URL}/{GEMINI_MODEL}:generateContent"
         self.bmkg = BMKGClient()
         self.system_prompt = SYSTEM_PROMPT
         self.news_summary = NEWS_SUMMARY
+        self._cache = {}
+        self._CACHE_TTL = 300
+        self._KEY_COOLDOWN = {}
+        self._cache_lock = asyncio.Lock()
         logger.info(f"[Gemini] Initialized with {len(self.api_keys)} API key(s)")
 
     # ------------------------------------------------------------------
@@ -169,33 +168,33 @@ class GeminiClient:
     async def _get_cached(self, key: int) -> Optional[str]:
         """Get cached response if still valid."""
         async with self._cache_lock:
-            entry = self._CACHE.get(key)
+            entry = self._cache.get(key)
             if entry:
                 ts, val = entry
                 if time.time() - ts < self._CACHE_TTL:
                     logger.debug("[Gemini] Cache hit")
                     return val
                 # Expired cache entry
-                self._CACHE.pop(key, None)
+                self._cache.pop(key, None)
         return None
 
     async def _set_cached(self, key: int, val: str):
         """Store response in cache."""
         async with self._cache_lock:
-            self._CACHE[key] = (time.time(), val)
+            self._cache[key] = (time.time(), val)
             # FIXED: Clean old cache entries to prevent memory leak
-            if len(self._CACHE) > 100:
+            if len(self._cache) > 100:
                 await self._clean_old_cache()
 
     async def _clean_old_cache(self):
         """Remove expired cache entries."""
         now = time.time()
         expired_keys = [
-            k for k, (ts, _) in self._CACHE.items() 
+            k for k, (ts, _) in self._cache.items() 
             if now - ts >= self._CACHE_TTL
         ]
         for k in expired_keys:
-            self._CACHE.pop(k, None)
+            self._cache.pop(k, None)
         logger.debug(f"[Gemini] Cleaned {len(expired_keys)} expired cache entries")
 
     # ------------------------------------------------------------------
@@ -243,7 +242,9 @@ class GeminiClient:
     # ------------------------------------------------------------------
     async def _get_weather_context(self, user_message: str) -> str:
         """Get weather context if user asks about weather."""
-        if "cuaca" not in user_message.lower():
+        # Trigger cuaca bila pesan mengandung kata kunci cuaca atau deskripsi cuaca umum
+        triggers = ["cuaca", "hujan", "panas", "mendung", "cerah"]
+        if not any(kw in user_message.lower() for kw in triggers):
             return ""
         
         try:
@@ -251,11 +252,11 @@ class GeminiClient:
             if not loc:
                 return ""
             
-            code = self.bmkg.search_location_code(loc)
+            code = await self.bmkg.search_location_code(loc)
             if not code:
                 return ""
             
-            data = self.bmkg.get_weather_raw(code)
+            data = await self.bmkg.get_weather_raw(code)
             if not data:
                 return ""
             
@@ -405,7 +406,7 @@ class GeminiClient:
             self._KEY_COOLDOWN[self.api_key] = time.time() + KEY_COOLDOWN_DURATION
             return False, None
 
-    def _rotate_to_next_key(self):
+    async def _rotate_to_next_key(self):
         """Rotate to the next available API key, menunggu cooldown bila diperlukan."""
         self.key_index = (self.key_index + 1) % len(self.api_keys)
         self.api_key = self.api_keys[self.key_index]
@@ -414,7 +415,7 @@ class GeminiClient:
             wait = max(0, self._KEY_COOLDOWN[self.api_key] - time.time())
             if wait:
                 logger.info(f"[Gemini] Menunggu {wait:.1f}s untuk key selanjutnya")
-                time.sleep(wait)
+                await asyncio.sleep(wait)
 
     # ------------------------------------------------------------------
     # Public async generate
@@ -437,7 +438,7 @@ class GeminiClient:
             Generated response text
         """
         # Check circuit breaker
-        if _is_circuit_breaker_active():
+        if await _is_circuit_breaker_active():
             logger.warning("[Gemini] Circuit breaker active, request blocked")
             return "[Gemini] Service overload, coba lagi nanti."
 
@@ -473,7 +474,7 @@ class GeminiClient:
                 return response or "[Gemini] Response kosong."
             
             # Failed - rotate to next key
-            self._rotate_to_next_key()
+            await self._rotate_to_next_key()
             attempts += 1
 
         # All keys failed

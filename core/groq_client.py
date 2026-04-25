@@ -69,7 +69,7 @@ class GroqClient:
             "stream": False
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             async with session.post(self.base_url, json=payload, headers=headers) as response:
                 if response.status != 200:
                     error_text = await response.text()

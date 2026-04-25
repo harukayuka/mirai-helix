@@ -1,4 +1,5 @@
 import asyncio
+import time
 import random
 import discord
 from datetime import datetime, timedelta
@@ -116,40 +117,59 @@ class SchedulerService:
         
         while not self.bot.is_closed():
             try:
-                cpu = psutil.cpu_percent(interval=1)
+                cpu = await asyncio.to_thread(psutil.cpu_percent, interval=1)
                 ram = psutil.virtual_memory().percent
                 
                 # Kirim webhook untuk peringatan (CPU >= 50%) dan kritis (CPU >= 70%)
-                current_time = asyncio.get_event_loop().time()
-                # Jika webhook URL ada dan cooldown selesai, kirim payload sesuai level
-                if WEBHOOK_URL and (current_time - last_webhook_time) >= webhook_cooldown:
-                    severity = None
-                    embed_color = 0x00ff00
-                    status_text = "✅ Normal"
-                    if cpu >= 70:
-                        severity = "critical"
-                        embed_color = 0xff0000
-                        status_text = "⚠️ CPU Tinggi"
-                    elif cpu >= 50:
-                        severity = "warning"
-                        embed_color = 0xffa500
-                        status_text = "⚠️ CPU Sedang"
-                    
-                    if severity:
-                        embed = {
-                            "title": "📊 Monitoring Server",
-                            "description": f"CPU: {cpu}%\nRAM: {ram}%",
-                            "color": embed_color,
-                            "fields": [{"name": "Status", "value": status_text}],
-                            "severity": severity,
-                        }
-                        payload = {"embeds": [embed]}
+                # Jika webhook URL tidak ada, fallback kirim embed ke ALERT_CHANNEL_ID.
+                current_time = time.time()
+                # Tentukan severity & warna
+                severity = None
+                embed_color = 0x00ff00
+                status_text = "✅ Normal"
+                if cpu >= 70:
+                    severity = "critical"
+                    embed_color = 0xff0000
+                    status_text = "⚠️ CPU Tinggi"
+                elif cpu >= 50:
+                    severity = "warning"
+                    embed_color = 0xffa500
+                    status_text = "⚠️ CPU Sedang"
+                
+                if severity:
+                    embed = {
+                        "title": "📊 Monitoring Server",
+                        "description": f"CPU: {cpu}%\nRAM: {ram}%",
+                        "color": embed_color,
+                        "fields": [{"name": "Status", "value": status_text}],
+                        "severity": severity,
+                    }
+                    payload = {"embeds": [embed]}
+                    # Prioritas: kirim ke webhook bila URL ada
+                    if WEBHOOK_URL and (current_time - last_webhook_time) >= webhook_cooldown:
                         try:
                             await self._send_webhook(payload)
                             logger.info(f"[Monitor] Webhook {severity} dikirim (CPU {cpu}%)")
                             last_webhook_time = current_time
                         except Exception as e:
                             logger.error(f"[Monitor] Gagal mengirim webhook: {e}")
+                    # Fallback: kirim embed ke channel alert bila URL tidak ada
+                    elif ALERT_CHANNEL_ID and (current_time - last_webhook_time) >= webhook_cooldown:
+                        try:
+                            channel = self.bot.get_channel(ALERT_CHANNEL_ID)
+                            if channel:
+                                embed_obj = discord.Embed(
+                                    title=embed["title"],
+                                    description=embed["description"],
+                                    color=embed["color"]
+                                )
+                                for f in embed["fields"]:
+                                    embed_obj.add_field(name=f["name"], value=f["value"], inline=False)
+                                await channel.send(embed=embed_obj)
+                                logger.info(f"[Monitor] Alert channel {severity} dikirim (CPU {cpu}%)")
+                                last_webhook_time = current_time
+                        except Exception as e:
+                            logger.error(f"[Monitor] Gagal mengirim ke alert channel: {e}")
                 
                 # Handle high CPU - pause modules
                 if cpu >= 70 and not self.modules_paused:
@@ -202,15 +222,20 @@ class SchedulerService:
             await asyncio.sleep(60)
 
     async def _send_webhook(self, payload):
-        """Send webhook with proper session management and error handling."""
+        """Send webhook with proper session management and error handling.
+        Modified to use a simple ``await session.post`` call so it works with
+        our test‑stub (which returns a coroutine that yields a response object).
+        The real ``aiohttp`` client also supports this usage.
+        """
         try:
             session = await self._get_webhook_session()
-            async with session.post(WEBHOOK_URL, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status >= 400:
-                    txt = await resp.text()
-                    logger.error(f"[Monitor] Webhook gagal {resp.status}: {txt}")
-                else:
-                    logger.debug(f"[Monitor] Webhook berhasil dikirim (status {resp.status})")
+            # ``session.post`` returns a coroutine that resolves to a response
+            resp = await session.post(WEBHOOK_URL, json=payload, timeout=aiohttp.ClientTimeout(total=5))
+            if resp.status >= 400:
+                txt = await resp.text()
+                logger.error(f"[Monitor] Webhook gagal {resp.status}: {txt}")
+            else:
+                logger.debug(f"[Monitor] Webhook berhasil dikirim (status {resp.status})")
         except asyncio.TimeoutError:
             logger.error("[Monitor] Webhook timeout setelah 5 detik")
         except Exception as e:

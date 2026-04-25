@@ -1,4 +1,12 @@
 # core/module_manager.py - Manajemen Modul Mirai
+"""
+Modul untuk mengelola status aktif/nonaktif dari berbagai fitur Mirai.
+
+Fitur:
+- Enable/disable modul seperti calculator, weather, news, greeting, qwen, wellness
+- Konfigurasi disimpan di data/module_config.json
+- Dapat diakses dari command /module
+"""
 import json
 from pathlib import Path
 from utils.logger import setup_logging
@@ -17,9 +25,10 @@ class ModuleManager:
         Note:
             self.modules berisi daftar semua modul yang didukung.
             Modul "qwen" ditambahkan untuk mendukung batch processing Qwen.
+            Modul "wellness" ditambahkan untuk mendukung wellness reminders.
         """
         self._ensure_config_exists()
-        self.modules = ["calculator", "weather", "news", "greeting", "qwen"]
+        self.modules = ["calculator", "weather", "news", "greeting", "qwen", "wellness"]
 
     def _ensure_config_exists(self):
         """
@@ -37,7 +46,8 @@ class ModuleManager:
                 "weather": True,
                 "news": True,
                 "greeting": True,
-                "qwen": True  # Modul Qwen batch processing
+                "qwen": True,  # Modul Qwen batch processing
+                "wellness": True  # Modul wellness
             }
             self._save_config(default_config)
             logger.info("[MODULE] Config file dibuat dengan default: semua modul aktif")

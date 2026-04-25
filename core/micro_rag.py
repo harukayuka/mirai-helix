@@ -56,22 +56,21 @@ class MicroRAG:
 
         try:
             history = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
-            for msg in history:
-                if msg.get("role") == "user":
-                    content = msg.get("parts", [{}])[0].get("text", "")
-                    # Format di main.py: "Nama (ID): Pesan [channel: ...] [server: ...] Timestamp"
-                    if "(" in content and "):" in content:
-                        try:
-                            parts = content.split("):", 1)
-                            header = parts[0] # "Nama (ID"
-                            message = parts[1].split("[channel:", 1)[0].strip()
-                            user_id = header.split("(")[-1].strip()
-                            
-                            if user_id not in user_data:
-                                user_data[user_id] = []
-                            user_data[user_id].append(message)
-                        except:
-                            continue
+            for entry in history:
+                user_field = entry.get("user", "")
+                message = entry.get("message", "")
+                if not user_field or not message:
+                    continue
+                # Format user_field: "Nama | ID"
+                parts = user_field.rsplit(" | ", 1)
+                if len(parts) == 2:
+                    user_id = parts[1].strip()
+                else:
+                    # fallback: pakai ID dari string jika ada, atau skip
+                    continue
+                if user_id not in user_data:
+                    user_data[user_id] = []
+                user_data[user_id].append(message)
         except Exception as e:
             logger.error(f"[Micro-RAG] Gagal ekstraksi history: {e}")
         
@@ -123,7 +122,7 @@ class MicroRAG:
         """
         
         try:
-            completion = self.client.chat.completions.create(
+            completion = await self.client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": "Kamu adalah AI Profiler yang tajam dan empatik."},

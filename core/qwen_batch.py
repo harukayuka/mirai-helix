@@ -16,6 +16,7 @@ from utils.logger import setup_logging
 # Import helper AI yang baru dipindahkan ke folder ai
 from ai.qwen_client import ask_qwen
 from core.module_manager import module_manager
+from utils.cleanup import clean_old_reports
 
 logger = setup_logging()
 
@@ -142,11 +143,18 @@ async def process_batch(bot: discord.Client):
 
     # Kumpulkan semua pesan
     prompt_parts = []
+    files = list(USER_DIR.glob("*.txt"))
+    total_users = len(files)
+    processed_users = 0
+    retained_users = 0
+    skipped_empty_users = 0
+    
     try:
-        for txt_file in USER_DIR.glob("*.txt"):
+        for txt_file in files:
             try:
                 content = txt_file.read_text(encoding="utf-8")
                 if not content.strip():
+                    skipped_empty_users += 1
                     continue
                 prompt_parts.append(f"--- Pesan dari user {txt_file.stem} ---\n{content}")
             except IOError as e:
@@ -156,7 +164,7 @@ async def process_batch(bot: discord.Client):
         return {"status": "error", "message": str(e)}
 
     if not prompt_parts:
-        return {"status": "empty"}
+        return {"status": "empty", "total_users": total_users}
 
     # Instruksi CBT/DBT
     system_msg = (
@@ -208,10 +216,30 @@ async def process_batch(bot: discord.Client):
     else:
         logger.warning("Tidak ada channel tujuan untuk kirim hasil Qwen.")
 
+    # Hapus file user yang sudah diproses
+    for txt_file in files:
+        try:
+            content = txt_file.read_text(encoding="utf-8")
+            if not content.strip():
+                txt_file.unlink()
+                continue
+            
+            # Cek apakah file berhasil diproses
+            if response:
+                txt_file.unlink()  # Hapus file setelah diproses
+                processed_users += 1
+            else:
+                retained_users += 1  # File disimpan untuk retry
+        except IOError as e:
+            logger.error("Gagal membaca/hapus file %s: %s", txt_file, e)
+
     return {
         "status": "completed",
         "result_file": str(result_file),
-        "total_users": len(list(USER_DIR.glob("*.txt")))
+        "total_users": total_users,
+        "processed_users": processed_users,
+        "retained_users": retained_users,
+        "skipped_empty_users": skipped_empty_users
     }
 
 # -------------------------------------------------------------------------
@@ -314,15 +342,17 @@ def is_channel_enabled(channel_id: int) -> bool:
     """Cek apakah channel aktif untuk pemantauan."""
     return channel_id in config.get("enabled_channels", [])
 
-def collect_message(user_id: int, user_name: str, content: str, channel_id: int, 
+async def collect_message(user_id: int, user_name: str, content: str, channel_id: int, 
                     channel_name: str = "", server_name: str = "", server_id: str = "",
                     attachment_context: str = "", timestamp=None):
-    """Kumpulkan pesan untuk diproses nanti."""
+    """Kumpulkan pesan untuk diproses nanti (async)."""
     try:
         file_path = USER_DIR / f"{user_id}.txt"
         line = f"{timestamp}\t{channel_id}\t{user_name}\t{content}\n"
-        with open(file_path, "a", encoding="utf-8") as f:
-            f.write(line)
+        # gunakan aiofiles untuk operasi async
+        import aiofiles
+        async with aiofiles.open(file_path, "a", encoding="utf-8") as f:
+            await f.write(line)
     except Exception as e:
         logger.error(f"Gagal collect message: {e}")
 

@@ -4,10 +4,12 @@ Simple disk-based memory system untuk menyimpan history percakapan.
 Menggunakan JSON file untuk persistensi data dan deque untuk cache RAM.
 """
 
+import asyncio
+import threading
 import json
 import os
-import threading
 import time
+from typing import List, Dict
 from collections import deque
 from itertools import islice
 from config import MAX_HISTORY, HISTORY_FILE
@@ -30,8 +32,7 @@ def _load_history():
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
-                with _cache_lock:
-                    _history_cache.extend(data[-MAX_HISTORY:])
+                                    _history_cache.extend(data[-MAX_HISTORY:])
         logger.info("[Memory] Loaded %s pesan dari disk", len(_history_cache))
     except json.JSONDecodeError:
         corrupt_name = f"{HISTORY_FILE}.corrupt-{int(time.time())}"
@@ -57,7 +58,7 @@ def _save_history():
 
 # ===== PUBLIC API =====
 
-def add_message(role: str, content: str):
+async def add_message(role: str, content: str):
     """
     Tambah pesan ke history.
     
@@ -71,19 +72,18 @@ def add_message(role: str, content: str):
     }
     with _cache_lock:
         _history_cache.append(formatted)
-    _save_history()
+    await asyncio.to_thread(_save_history)
 
-def get_history():
+def get_history() -> List[Dict]:
     """
     Ambil seluruh history.
     
     Returns:
         List of dict dengan format {"role": str, "parts": list}
     """
-    with _cache_lock:
-        return list(_history_cache)
+    return list(_history_cache)
 
-def get_recent_history(count=5):
+def get_recent_history(count: int = 5) -> List[Dict]:
     """
     Ambil N pesan terakhir dari history.
     
@@ -93,16 +93,14 @@ def get_recent_history(count=5):
     Returns:
         List of dict dengan format {"role": str, "parts": list}
     """
-    with _cache_lock:
-        total = len(_history_cache)
-        if total <= count:
-            return list(_history_cache)
-        return list(islice(_history_cache, total - count, total))
+    total = len(_history_cache)
+    if total <= count:
+        return list(_history_cache)
+    return list(islice(_history_cache, total - count, total))
 
 def clear_history():
     """Hapus seluruh history."""
-    with _cache_lock:
-        _history_cache.clear()
+    _history_cache.clear()
     _save_history()
     logger.info("[Memory] History cleared")
 
@@ -113,8 +111,7 @@ def get_history_length():
     Returns:
         int: Jumlah pesan
     """
-    with _cache_lock:
-        return len(_history_cache)
+    return len(_history_cache)
 
 # ===== INITIALIZATION =====
 _load_history()
