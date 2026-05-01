@@ -1,8 +1,9 @@
 {
-    "calculator": false,
-    "weather": false,
-    "news": false,
-    "greeting": false,
+    "calculator": true,
+    "weather": true,
+    "news": true,
+    "greeting": true,
     "qwen": false,
-    "wellness": false
+    "wellness": true,
+    "deepseek": false
 }

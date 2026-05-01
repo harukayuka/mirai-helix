@@ -17,6 +17,7 @@ MODULE_CONFIG_PATH = Path("data/module_config.json")
 class ModuleManager:
     """
     Kelas untuk mengelola status aktif/nonaktif modul perintah slash.
+    Menggunakan cache in-memory + mtime check untuk menghindari disk read berlebihan.
     """
     def __init__(self):
         """
@@ -24,11 +25,15 @@ class ModuleManager:
         
         Note:
             self.modules berisi daftar semua modul yang didukung.
-            Modul "qwen" ditambahkan untuk mendukung batch processing Qwen.
-            Modul "wellness" ditambahkan untuk mendukung wellness reminders.
+            _config_cache: cache in-memory hasil baca dari JSON.
+            _cache_mtime: timestamp modifikasi file terakhir yang sudah di-cache.
         """
         self._ensure_config_exists()
-        self.modules = ["calculator", "weather", "news", "greeting", "qwen", "wellness"]
+        self.modules = ["calculator", "weather", "news", "greeting", "deepseek", "wellness"]
+        # Cache — baca disk hanya jika file berubah
+        self._config_cache: dict = {}
+        self._cache_mtime: float = 0.0
+        self._refresh_cache()
 
     def _ensure_config_exists(self):
         """
@@ -46,7 +51,7 @@ class ModuleManager:
                 "weather": True,
                 "news": True,
                 "greeting": True,
-                "qwen": True,  # Modul Qwen batch processing
+                "deepseek": True,  # Modul DeepSeek batch processing
                 "wellness": True  # Modul wellness
             }
             self._save_config(default_config)
@@ -73,6 +78,16 @@ class ModuleManager:
             # Return default config jika ada error
             return {m: True for m in self.modules}
 
+    def _refresh_cache(self):
+        """Refresh cache dari disk hanya jika file termodifikasi."""
+        try:
+            mtime = MODULE_CONFIG_PATH.stat().st_mtime
+            if mtime != self._cache_mtime:
+                self._config_cache = self._load_config()
+                self._cache_mtime = mtime
+        except Exception:
+            pass
+
     def _save_config(self, config):
         """Menyimpan konfigurasi modul ke file JSON."""
         try:
@@ -82,15 +97,21 @@ class ModuleManager:
             logger.error(f"[MODULE] Error saving config: {e}")
 
     def is_enabled(self, module_name: str) -> bool:
-        """Cek apakah modul tertentu aktif."""
-        config = self._load_config()
-        return config.get(module_name, True)
+        """Cek apakah modul tertentu aktif. Gunakan cache — hanya baca disk jika file berubah."""
+        self._refresh_cache()
+        return self._config_cache.get(module_name, True)
 
     def set_status(self, module_name: str, status: bool):
-        """Mengatur status aktif/nonaktif modul."""
+        """Mengatur status aktif/nonaktif modul. Update cache setelah write."""
         config = self._load_config()
         config[module_name] = status
         self._save_config(config)
+        # Update cache langsung — hindari disk read berikutnya
+        self._config_cache = config
+        try:
+            self._cache_mtime = MODULE_CONFIG_PATH.stat().st_mtime
+        except Exception:
+            pass
 
     def get_all_status(self):
         """Mendapatkan status semua modul."""

@@ -14,8 +14,8 @@ load_dotenv()
 logger = setup_logging()
 
 # Konfigurasi
-QWEN_API_KEY = os.getenv("QWEN_API_KEY")
-QWEN_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")  # BUGFIX: was QWEN_API_KEY
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 USER_CHATS_DIR = Path("data/user_chats")
 QWEN_CONFIG_PATH = Path("data/qwen_config.json")
 RPM_LIMIT = 40
@@ -23,11 +23,11 @@ RPM_INTERVAL = 60 / RPM_LIMIT # Jeda antar request untuk menjaga RPM
 
 class QwenBatchProcessor:
     """
-    Mengelola pengumpulan chat per user dan pemrosesan batch terjadwal menggunakan Qwen-3.5.
+    Mengelola pengumpulan chat per user dan pemrosesan batch terjadwal menggunakan DeepSeek-R1.
     """
     def __init__(self):
         USER_CHATS_DIR.mkdir(parents=True, exist_ok=True)
-        self.client = OpenAI(base_url=QWEN_BASE_URL, api_key=QWEN_API_KEY) if QWEN_API_KEY else None
+        self.client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=NVIDIA_API_KEY) if NVIDIA_API_KEY else None
         self.config = self._load_config()
 
     def _load_config(self) -> Dict:
@@ -64,7 +64,7 @@ class QwenBatchProcessor:
 
     def collect_message(self, user_id: int, user_name: str, message: str, channel_id: int):
         """Simpan pesan user ke file .txt per user jika channel aktif."""
-        if not self.is_channel_enabled(channel_id) or not module_manager.is_enabled("qwen"):
+        if not self.is_channel_enabled(channel_id) or not module_manager.is_enabled("deepseek"):
             return
 
         file_path = USER_CHATS_DIR / f"{user_id}.txt"
@@ -82,7 +82,7 @@ class QwenBatchProcessor:
             logger.warning("[Qwen] API Key tidak ditemukan. Batch processing dibatalkan.")
             return
 
-        if not module_manager.is_enabled("qwen"):
+        if not module_manager.is_enabled("deepseek"):
             logger.info("[Qwen] Modul dinonaktifkan. Batch processing dilewati.")
             return
 
@@ -110,7 +110,7 @@ class QwenBatchProcessor:
                         target_channel_id = self.config["enabled_channels"][0]
                         channel = bot.get_channel(target_channel_id)
                         if channel:
-                            header = f"📊 **Laporan Analisis Harian Mirai (Qwen-3.5)**\nUser ID: <@{user_id}>\n"
+                            header = f"📊 **Laporan Analisis Harian Mirai (DeepSeek-R1)**\nUser ID: <@{user_id}>\n"
                             await channel.send(header + analysis)
                             logger.info(f"[Qwen] Berhasil mengirim analisis untuk user {user_id}")
                         
@@ -143,7 +143,7 @@ class QwenBatchProcessor:
             # tapi untuk batch kita ambil hasil akhirnya saja.
             response = await asyncio.to_thread(
                 self.client.chat.completions.create,
-                model="qwen/qwen3.5-397b-a17b",
+                model="deepseek-ai/deepseek-r1"  # BUGFIX: replaced Qwen model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.60,
                 top_p=0.95,

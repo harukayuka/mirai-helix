@@ -45,14 +45,14 @@ class SchedulerService:
         if self._webhook_session and not self._webhook_session.closed:
             await self._webhook_session.close()
 
-    def start_all(self):
-        self.bot.loop.create_task(self.update_presence())
-        self.bot.loop.create_task(self.schedule_news_summary())
-        self.bot.loop.create_task(self.schedule_micro_rag())
-        self.bot.loop.create_task(self.reminder_manager.initialize_all_reminders())
-        self.bot.loop.create_task(self.online_counter_manager.initialize_all_counters())
-        self.bot.loop.create_task(self.monitor_resources())  # Monitor CPU & RAM
-        self.bot.loop.create_task(self._start_qwen_batch())
+    async def start_all(self):
+        asyncio.create_task(self.update_presence())
+        asyncio.create_task(self.schedule_news_summary())
+        asyncio.create_task(self.schedule_micro_rag())
+        asyncio.create_task(self.reminder_manager.initialize_all_reminders())
+        asyncio.create_task(self.online_counter_manager.initialize_all_counters())
+        asyncio.create_task(self.monitor_resources())
+        asyncio.create_task(self._start_qwen_batch())
         logger.info("[Scheduler] All background tasks started.")
 
     async def update_presence(self):
@@ -93,6 +93,10 @@ class SchedulerService:
 
     async def schedule_micro_rag(self):
         await self.bot.wait_until_ready()
+        
+        # Tunggu 1 jam dulu agar data chat terkumpul sebelum analisis pertama
+        await asyncio.sleep(3600)
+        
         while not self.bot.is_closed():
             try:
                 # FIXED: Added timeout to prevent hanging
@@ -246,4 +250,4 @@ class SchedulerService:
         try:
             qwen_batch.start_auto_run(self.bot)
         except Exception as e:
-            logger.exception(f"[Scheduler] Error starting qwen_batch: {e}")
+            logger.exception(f"[Scheduler] Error starting deepseek_batch: {e}")

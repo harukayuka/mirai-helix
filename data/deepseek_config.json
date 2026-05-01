@@ -1,13 +1,13 @@
 {
+  "model": "deepseek-ai/deepseek-v4-pro",
   "enabled": true,
   "enabled_channels": [],
-  "last_run": null,
-  "user_channels": {},
   "forced_delivery_channel_id": null,
+  "last_run": null,
   "auto_run": {
     "enabled": false,
-    "hour": 11,
-    "minute": 59,
+    "hour": 0,
+    "minute": 0,
     "delivery_channel_id": null
   }
 }

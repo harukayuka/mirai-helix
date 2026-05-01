@@ -24,14 +24,10 @@ class OnlineCounterManager:
             json.dump(self.counters, f, indent=4)
 
     async def start_counter(self, guild_id, channel_id):
-        # Aktifkan counter dan lakukan update pertama segera
-        # sehingga channel menampilkan jumlah online langsung
-        
         guild_id_str = str(guild_id)
         self.counters[guild_id_str] = {'channel_id': channel_id, 'active': True}
         self._save_counters()
-        # Lakukan update pertama secara langsung, lalu biarkan scheduler menangani update selanjutnya
-        await self._update_channel_after_delay(guild_id, 0)
+        await self._schedule_next_update(guild_id)
 
     async def stop_counter(self, guild_id):
         guild_id_str = str(guild_id)
@@ -52,9 +48,6 @@ class OnlineCounterManager:
         return {'active': False, 'channel_id': None}
 
     async def _schedule_next_update(self, guild_id):
-        # Pastikan bot siap sebelum menjadwalkan task
-        await self.bot.wait_until_ready()
-        
         guild_id_str = str(guild_id)
         if not self.counters.get(guild_id_str, {}).get('active'):
             return
@@ -98,12 +91,11 @@ class OnlineCounterManager:
                 print(f"[OnlineCounter] Channel {channel_id} not found or not a voice channel for guild {guild_id}")
 
         except asyncio.CancelledError:
-            # Task dibatalkan (mis. bot shutdown atau stop_counter). Tidak perlu log error.
-            pass
-        # Jadwalkan update berikutnya setelah selesai (jika masih aktif)
-        if self.counters.get(guild_id_str, {}).get('active'):
-            await self._schedule_next_update(guild_id)
-
+            print(f"[OnlineCounter] Online counter for guild {guild_id} was cancelled.")
+        finally:
+            # Schedule the next update immediately after the current one finishes
+            if self.counters.get(guild_id_str, {}).get('active'):
+                await self._schedule_next_update(guild_id)
 
     async def initialize_all_counters(self):
         for guild_id_str, counter_data in self.counters.items():

@@ -1,48 +1,47 @@
+from typing import Optional
 import discord
 from discord import app_commands
 from commands.base import BaseCommand
-from memory import get_history
+from utils.logger import setup_logging
+from pathlib import Path
+
+logger = setup_logging()
 
 class GeneralCommands(BaseCommand):
     def register(self, tree: app_commands.CommandTree):
-        @tree.command(name="ping", description="Cek respons bot")
-        async def ping(interaction: discord.Interaction):
-            latency = round(self.bot.latency * 1000)
-            await interaction.response.send_message(f"Pong! 🏓 **{latency}ms**")
+        @tree.command(name="report", description="Lihat laporan batch processing terbaru")
+        @app_commands.describe(
+            channel="Channel tujuan upload laporan (opsional, default: channel ini)"
+        )
+        async def report(interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None):
+            """Upload laporan batch processing terbaru ke channel."""
+            await interaction.response.defer(ephemeral=True)
+            target = channel or interaction.channel
+            if not target or not hasattr(target, "send"):
+                await interaction.followup.send("❌ Channel tidak valid.", ephemeral=True)
+                return
 
-        @tree.command(name="info", description="Info tentang Mirai")
-        async def info(interaction: discord.Interaction):
-            embed = discord.Embed(
-                title="🤖 **Mirai - Health Assistant**",
-                description="Asisten kesehatan dan pendamping emosional di server Helix",
-                color=0x00ff88
-            )
-            embed.add_field(
-                name="Fitur",
-                value="• Curhat & konseling ringan\n• Edukasi kesehatan\n• Pendengar yang baik",
-                inline=False
-            )
-            embed.add_field(
-                name="Cara pakai",
-                value="• Mention aku di channel\n• Reply ke pesanku\n• Pakai `/ask`",
-                inline=False
-            )
-            embed.add_field(
-                name="Note",
-                value="Aku bukan dokter! Untuk kondisi serius, segera ke profesional.",
-                inline=False
-            )
-            embed.set_footer(text=f"Diminta oleh {interaction.user.display_name}")
-            await interaction.response.send_message(embed=embed)
+            # Cari file laporan terbaru
+            ds_dir = Path("data/deepseek_results")
+            qw_dir = Path("data/qwen_results")
+            ds_files = list(ds_dir.glob("*.txt")) if ds_dir.exists() else []
+            qw_files = list(qw_dir.glob("*.txt")) if qw_dir.exists() else []
+            all_files = ds_files + qw_files
 
-        @tree.command(name="status", description="Lihat status bot")
-        async def status(interaction: discord.Interaction):
-            total_history = len(get_history())
-            embed = discord.Embed(
-                title="📊 **Status Bot**",
-                color=0x3498db
-            )
-            embed.add_field(name="Model AI", value="Gemini 2.5 Flash", inline=True)
-            embed.add_field(name="Total Pesan di History", value=str(total_history), inline=True)
-            embed.add_field(name="Latency", value=f"{round(self.bot.latency * 1000)}ms", inline=True)
-            await interaction.response.send_message(embed=embed)
+            if not all_files:
+                await interaction.followup.send("ℹ️ Belum ada laporan batch tersimpan.", ephemeral=True)
+                return
+
+            latest = max(all_files, key=lambda f: f.stat().st_mtime)
+            content = latest.read_text(encoding="utf-8")
+
+            # Kirim ke channel
+            try:
+                from core import qwen_batch
+                header = f"📊 **Laporan Batch Terbaru** — `{latest.name}`\n\n"
+                for chunk in qwen_batch.split_for_discord(header + content):
+                    await target.send(chunk)
+                await interaction.followup.send(f"✅ Laporan dikirim ke {target.mention}", ephemeral=True)
+            except Exception as e:
+                logger.error(f"[Report] Error: {e}")
+                await interaction.followup.send(f"❌ Gagal mengirim laporan: {str(e)[:100]}", ephemeral=True)

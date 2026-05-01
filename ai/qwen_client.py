@@ -19,7 +19,7 @@ HEADERS = {
 }
 
 DEFAULT_PAYLOAD = {
-    "model": "qwen/qwen3.5-122b-a10b",
+    "model": "qwen/qwen3-next-80b-a3b-instruct",
     "max_tokens": 16384,
     "stream": False,
     "temperature": 0.6,
@@ -81,4 +81,3 @@ async def ask_qwen(user_message: str) -> str:
             logger.exception(f"Unexpected error calling Qwen: {e}")
             raise
     raise RuntimeError("Failed to get response from Qwen API")
-

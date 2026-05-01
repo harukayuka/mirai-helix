@@ -3,11 +3,12 @@ import math
 import json
 import discord
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from utils.logger import setup_logging
 from utils.sentiment import analyze_sentiment, get_mood_emoji
 from utils.wellness import get_wellness_reminder, should_give_reminder
+from utils.identity import resolve_name, clean_name, build_user_context
 from core.file_reading import build_attachment_context
 import core.qwen_batch as qwen_batch
 from config import COOLDOWN_REPLY_DELAY
@@ -21,7 +22,7 @@ class MessageHandler:
         self.bot = bot
         self.ai = ai_service
         self.cooldown = cooldown_manager
-        self.micro_rag = micro_rag
+        self.micro_rag = micro_rag  # Micro-RAG untuk profiling user
 
     def clean_message(self, content):
         """Bersihkan pesan dari mention bot."""
@@ -30,35 +31,35 @@ class MessageHandler:
                       .strip()
 
     def format_user_identity(self, message: discord.Message) -> tuple[str, str]:
-        """Format identitas user dengan nama dan role."""
+        """
+        Format identitas user: nama bersih + role.
+        PAKAI resolve_name() dari utils/identity.py — SATU-SATUNYA sumber nama.
+        """
         author = message.author
+        # Gunakan central resolver — tidak ada lagi "global_name / display_name"
+        name = clean_name(resolve_name(message))
+        
         role_name = "DM"
         if isinstance(author, discord.Member):
-            if author.global_name and author.global_name != author.display_name:
-                name = f"{author.global_name} / {author.display_name}"
-            else:
-                name = author.display_name
             guild_roles = [role for role in author.roles if role.name != "@everyone"]
             if guild_roles:
                 role_name = guild_roles[-1].name
             else:
                 role_name = "Member"
-        else:
-            name = author.display_name
+        
         return name, role_name
 
     # ========== HELPER FUNCTIONS (Pisah dari main logic) ==========
     
-    async def _get_attachment_context(self, attachments: list) -> str:
+    async def _get_attachment_context(self, attachments: list, channel_id: int) -> str:
         """
-        Ambil context dari attachment jika ada.
-        PERBAIKAN: SELALU cek attachment, bukan conditional qwen_batch.
+        Ambil context dari attachment hanya jika channel mengaktifkan fitur ini.
         """
         if not attachments:
             return ""
         
         # Cek jika channel memiliki fitur attachment processing
-        if hasattr(qwen_batch, 'is_channel_enabled'):
+        if hasattr(qwen_batch, 'is_channel_enabled') and qwen_batch.is_channel_enabled(channel_id):
             return await build_attachment_context(attachments)
         
         return ""
@@ -73,14 +74,20 @@ class MessageHandler:
         timestamp: str,
         server_name: str | None = None,
         server_id: int | None = None,
-        attachment_context: str = ""
+        attachment_context: str = "",
+        rag_context: str = "",
+        is_dm: bool = False,
     ) -> str:
         """
-        Build structured context untuk Gemini.
-        PERBAIKAN: Format yang jelas dan konsisten sesuai requirements.
+        Build structured context untuk AI.
+        Nama user sudah di-resolve oleh format_user_identity() via resolve_name().
+        HANYA SATU NAMA yang dimasukkan ke context.
         """
+        context_type = "dm" if is_dm else "server"
+        
         context = (
-            f"Display Name: {user_name}\n"
+            f"Nama user: {user_name}\n"
+            f"Context: {context_type}\n"
             f"User ID: {user_id}\n"
             f"Channel: {channel_name}\n"
             f"Channel ID: {channel_id}\n"
@@ -94,8 +101,17 @@ class MessageHandler:
         
         if attachment_context:
             context += f"\n\n[Attachment Context]\n{attachment_context}"
-        # Instruksi eksplisit agar Gemini menyebutkan nama pengguna dan tidak menyebutkan ID
-        context += "\n\nInstruksi: Selalu gunakan nama Display Name di atas saat menyapa pengguna. Jangan menyebutkan atau menanyakan ID pengguna dalam balasan."
+        
+        if rag_context:
+            context += f"\n{rag_context}"
+        
+        # Constraint ketat: satu nama saja
+        context += (
+            "\n\nGunakan nama ini saja."
+            "\nJangan gunakan nama lain atau variasi."
+            "\nJangan gunakan dua nama sekaligus."
+            "\nGunakan hanya satu nama user dan jangan mengulang atau menggabungkannya."
+        )
         return context
 
     async def _save_to_history(
@@ -123,7 +139,10 @@ class MessageHandler:
         }
         """
         try:
-            history_path = Path(__file__).parent.parent / "history.json"
+            # Gunakan file terpisah khusus untuk chat log (Micro-RAG)
+            # Jangan campur dengan history.json milik memory.py (format Gemini)
+            history_path = Path("data/chat_log.json")
+            history_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Load existing data
             if history_path.exists():
@@ -139,11 +158,16 @@ class MessageHandler:
                 "channel": f"{channel_name} | {channel_id}",
                 "message": message,
                 "response": response,
-                "response_timestamp": datetime.utcnow().isoformat()
+                "response_timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             # Append entry
             data.append(entry)
+            
+            # Trim ke N entri terbaru agar file tidak tumbuh selamanya
+            MAX_CHAT_LOG_ENTRIES = 500
+            if len(data) > MAX_CHAT_LOG_ENTRIES:
+                data = data[-MAX_CHAT_LOG_ENTRIES:]
             
             # Save dengan format yang rapi
             with open(history_path, "w", encoding="utf-8") as f:
@@ -169,9 +193,13 @@ class MessageHandler:
             channel_name = getattr(message.channel, "name", "DM")
             server_name = message.guild.name if message.guild else None
             server_id = message.guild.id if message.guild else None
+            
+            # STEP 1.5: Reset history jika context berubah (server ↔ DM)
+            from memory import reset_on_context_change
+            reset_on_context_change(guild_id=server_id, user_id=user_id)
 
-            # STEP 2: Get attachment context (PERBAIKAN: Always check if exists)
-            attachment_context = await self._get_attachment_context(message.attachments)
+            # STEP 2: Get attachment context (hanya untuk channel yang diaktifkan)
+            attachment_context = await self._get_attachment_context(message.attachments, channel_id)
             
             # STEP 3: Collect message untuk qwen jika diperlukan
             if hasattr(qwen_batch, 'collect_message'):
@@ -193,14 +221,14 @@ class MessageHandler:
                     ref = await message.channel.fetch_message(message.reference.message_id)
                     if ref.author == self.bot.user:
                         should_reply = True
-                except:
+                except Exception:
                     pass
 
             if not should_reply:
                 return
 
-            # STEP 5: Check cooldown
-            can_proceed, wait_time = await self.cooldown.check_and_update(channel_id)
+            # STEP 5: Check cooldown (hanya cek, tanpa update state)
+            can_proceed, wait_time = await self.cooldown.check(channel_id)
             if not can_proceed:
                 msg = await message.reply(
                     f"⚠️ Tenang dulu ya... Aku lagi istirahat sebentar. "
@@ -212,7 +240,6 @@ class MessageHandler:
             # STEP 6: Generate reply dengan context yang benar
             async with message.channel.typing():
                 # Build user message untuk history
-                # Buat pesan user yang lengkap dengan semua info yang dibutuhkan
                 user_msg = (
                     f"{user_name} ({role_name}) | ID: {user_id}\n"
                     f"Channel: {channel_name} (ID: {channel_id})\n"
@@ -226,7 +253,11 @@ class MessageHandler:
                 await self.ai.add_to_history("user", user_msg)
                 history = self.ai.get_history()
                 
-                # Build context untuk Gemini (PERBAIKAN: structured format)
+                # Ambil konteks Micro-RAG (profil user jangka panjang)
+                rag_context = self.micro_rag.get_user_context(user_id)
+                
+                # Build context untuk AI
+                is_dm = message.guild is None
                 user_context = self._build_gemini_context(
                     user_name=user_name,
                     user_id=user_id,
@@ -236,12 +267,10 @@ class MessageHandler:
                     timestamp=message.created_at.isoformat(),
                     server_name=server_name,
                     server_id=server_id,
-                    attachment_context=attachment_context
+                    attachment_context=attachment_context,
+                    rag_context=rag_context,
+                    is_dm=is_dm,
                 )
-                # Tambahkan konteks profil user dari Micro‑RAG (personality, interests, mood, dll.)
-                rag_context = self.micro_rag.get_user_context(str(user_id))
-                if rag_context:
-                    user_context += rag_context
                 
                 # Generate reply dari Gemini
                 reply = await self.ai.generate_reply(history, user_context=user_context)
@@ -265,6 +294,9 @@ class MessageHandler:
                 # Send response ke user (no mention)
                 await self._send_long_message(message.channel, reply, reply_to=message)
             
+            # STEP 6.5: Tandai cooldown SETELAH reply sukses dikirim
+            self.cooldown.mark_replied(channel_id)
+            
             # STEP 7: Save to history.json (PERBAIKAN: format yang benar)
             await self._save_to_history(
                 user_name=user_name,
@@ -283,7 +315,7 @@ class MessageHandler:
         await asyncio.sleep(delay_seconds)
         try:
             await msg.delete()
-        except:
+        except Exception:
             pass
 
     async def _send_long_message(self, destination, content, reply_to=None, limit=2000):

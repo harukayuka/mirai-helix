@@ -1,4 +1,5 @@
 import os
+import asyncio
 from core.events.message_handler import MessageHandler
 from services.ai_service import AIService
 from services.scheduler_service import SchedulerService
@@ -38,18 +39,17 @@ class Router:
             self.online_counter_manager
         )
         
+        # Inisialisasi AutoGreeting SEKALI — jangan di on_ready (hindari duplikat handler saat reconnect)
+        from core.auto_greeting import AutoGreeting
+        from ai.gemini import GeminiClient
+        self.auto_greeting = AutoGreeting(self.bot, GeminiClient())
+        
         self.setup_events()
 
     def setup_events(self):
         @self.bot.event
         async def on_ready():
             logger.info("✅ Bot connected as %s", self.bot.user)
-            # Initialize AutoGreeting singleton for greeting commands
-            from core.auto_greeting import AutoGreeting
-            from ai.gemini import GeminiClient
-            # Buat instance global yang dapat di‑import oleh command
-            global auto_greeting
-            auto_greeting = AutoGreeting(self.bot, GeminiClient())
             guild_id = os.getenv("GUILD_ID")
             if guild_id:
                 await self.command_group.sync_commands(guild_id=int(guild_id))
@@ -58,7 +58,7 @@ class Router:
             
             if not getattr(self.bot, "_mirai_background_started", False):
                 self.bot._mirai_background_started = True
-                self.scheduler.start_all()
+                asyncio.create_task(self.scheduler.start_all())
 
         @self.bot.event
         async def on_message(message):

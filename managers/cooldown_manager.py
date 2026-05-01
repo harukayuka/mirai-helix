@@ -11,10 +11,10 @@ class CooldownManager:
             if channel_id.strip().isdigit()
         }
 
-    async def check_and_update(self, channel_id: int) -> tuple[bool, float]:
+    async def check(self, channel_id: int) -> tuple[bool, float]:
         """
-        Check if channel is on cooldown.
-        Returns (can_proceed, wait_time)
+        Hanya cek apakah channel sedang cooldown, TANPA mengubah state.
+        Returns (can_proceed, wait_time).
         """
         if channel_id in self.bypass_channel_ids:
             return True, 0
@@ -27,5 +27,11 @@ class CooldownManager:
             if elapsed < COOLDOWN_SECONDS:
                 return False, COOLDOWN_SECONDS - elapsed
         
-        self.last_reply_timestamp_by_channel[channel_id] = now
         return True, 0
+
+    def mark_replied(self, channel_id: int):
+        """
+        Tandai channel sudah mendapat reply SUKSES.
+        Panggil SETELAH reply berhasil dikirim — bukan sebelumnya.
+        """
+        self.last_reply_timestamp_by_channel[channel_id] = time.monotonic()

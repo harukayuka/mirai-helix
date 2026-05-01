@@ -25,7 +25,7 @@ import aiohttp
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import List, Dict, Optional, Tuple
-from ai.time import get_wib_time
+from ai.time import get_wib_time, get_wib_time_str
 from ai.cuaca import BMKGClient
 from config import (
     GEMINI_MODEL,
@@ -206,8 +206,9 @@ class GeminiClient:
             if msg.get("role") == "user":
                 txt = self._extract_text_from_message(msg)
                 txt_lower = txt.lower()
-                
+
                 if "jam" in txt_lower and "berapa" in txt_lower:
+                    # get_wib_time() returns datetime → .strftime() is valid ✅
                     return f"Sekarang jam {get_wib_time().strftime('%H:%M')} WIB."
                 if "tanggal" in txt_lower or "hari ini" in txt_lower:
                     return f"Hari ini tanggal {get_wib_time().strftime('%d-%m-%Y')} WIB."
@@ -298,7 +299,7 @@ class GeminiClient:
         # Build full system instruction
         full_system = (
             self.system_prompt +
-            f"\n\nInformasi waktu saat ini: {get_wib_time()}\n" +
+            f"\n\nInformasi waktu saat ini: {get_wib_time_str()}\n" +
             weather_ctx +
             self.news_summary +
             user_context

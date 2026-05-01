@@ -2,6 +2,8 @@
 """
 Simple disk-based memory system untuk menyimpan history percakapan.
 Menggunakan JSON file untuk persistensi data dan deque untuk cache RAM.
+
+PERBAIKAN: History dipisah per context (server/DM) agar nama user tidak tercampur.
 """
 
 import asyncio
@@ -9,7 +11,7 @@ import threading
 import json
 import os
 import time
-from typing import List, Dict
+from typing import List, Dict, Optional
 from collections import deque
 from itertools import islice
 from config import MAX_HISTORY, HISTORY_FILE
@@ -20,6 +22,9 @@ logger = setup_logging()
 # ===== CACHE RAM =====
 _history_cache = deque(maxlen=MAX_HISTORY)
 _cache_lock = threading.Lock()
+
+# Context tracking untuk deteksi perpindahan server ↔ DM
+_current_context_id: Optional[str] = None  # Format: "server:GUILD_ID" atau "dm:USER_ID"
 
 # ===== DISK OPERATIONS =====
 
@@ -32,7 +37,7 @@ def _load_history():
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
-                                    _history_cache.extend(data[-MAX_HISTORY:])
+                _history_cache.extend(data[-MAX_HISTORY:])
         logger.info("[Memory] Loaded %s pesan dari disk", len(_history_cache))
     except json.JSONDecodeError:
         corrupt_name = f"{HISTORY_FILE}.corrupt-{int(time.time())}"
@@ -57,6 +62,43 @@ def _save_history():
         logger.exception("[Memory] Save error: %s", e)
 
 # ===== PUBLIC API =====
+
+def detect_context(guild_id: Optional[int], user_id: int) -> str:
+    """
+    Deteksi context ID berdasarkan guild_id dan user_id.
+    
+    Returns:
+        str: "server:GUILD_ID" atau "dm:USER_ID"
+    """
+    if guild_id:
+        return f"server:{guild_id}"
+    return f"dm:{user_id}"
+
+
+def reset_on_context_change(guild_id: Optional[int], user_id: int) -> bool:
+    """
+    Reset history jika user berpindah context (server ↔ DM atau antar server).
+    
+    Returns:
+        bool: True jika history di-reset, False jika tidak
+    """
+    global _current_context_id
+    
+    new_context = detect_context(guild_id, user_id)
+    
+    if _current_context_id is None:
+        _current_context_id = new_context
+        logger.info("[Memory] Context initialized: %s", new_context)
+        return False
+    
+    if new_context != _current_context_id:
+        logger.info("[Memory] Context changed: %s -> %s. Resetting history...", _current_context_id, new_context)
+        clear_history()
+        _current_context_id = new_context
+        return True
+    
+    return False
+
 
 async def add_message(role: str, content: str):
     """
@@ -115,5 +157,5 @@ def get_history_length():
 
 # ===== INITIALIZATION =====
 _load_history()
-logger.info("[Memory] Ready - Simple disk mode")
+logger.info("[Memory] Ready - Simple disk mode (context-aware)")
 logger.info("[Memory] Max History: %s | File: %s", MAX_HISTORY, HISTORY_FILE)
