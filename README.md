@@ -47,7 +47,7 @@ Gunakan perintah `/deepseek model` untuk melihat dan mengganti model aktif.
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/your-username/mirai-helix.git
+git clone https://github.com/harukayuka/mirai-helix.git
 cd mirai-helix
 ```
 
