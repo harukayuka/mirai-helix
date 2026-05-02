@@ -91,6 +91,13 @@ async def _import_sql_to_db() -> bool:
     """
     Parse wilayah.sql dan import ke wilayah.db via aiosqlite.
 
+    Format SQL dump dari cahyadsn/wilayah:
+        INSERT INTO wilayah (kode, nama)
+        VALUES
+        ('11','Aceh'),
+        ('11.01','Kabupaten Aceh Selatan'),
+        ...;
+
     Tabel target:
         wilayah(kode TEXT PRIMARY KEY, nama TEXT NOT NULL)
     """
@@ -100,18 +107,20 @@ async def _import_sql_to_db() -> bool:
 
     sql_text = SQL_PATH.read_text(encoding="utf-8", errors="replace")
 
-    # Ekstrak baris INSERT VALUES dari SQL dump
-    # Format: INSERT INTO `wilayah` VALUES ('kode','nama');
-    # atau multi‑row: INSERT INTO `wilayah` VALUES (...),(...),...;
+    # Ekstrak baris dari INSERT ... VALUES (...), (...), ...;
+    # Format: INSERT INTO wilayah (kode, nama)\nVALUES\n('kode','nama'),\n('kode','nama');
     pattern = re.compile(
-        r"INSERT\s+INTO\s+`?wilayah`?\s+VALUES\s*(.*?);",
+        r"INSERT\s+INTO\s+wilayah\s*\([^)]+\)\s*VALUES\s*(.*?);",
         re.IGNORECASE | re.DOTALL,
     )
-    row_pat = re.compile(r"\('([^']+)',\s*'([^']*)'\)")
+
+    # Parse row: ('kode','nama') — handle escaped single quotes inside nama
+    row_pat = re.compile(r"\('([^']+)',\s*'((?:[^'\\]|\\.)*)'\)")
 
     rows: list[tuple[str, str]] = []
     for match in pattern.finditer(sql_text):
-        for row in row_pat.finditer(match.group(1)):
+        values_block = match.group(1).strip()
+        for row in row_pat.finditer(values_block):
             rows.append((row.group(1), row.group(2)))
 
     if not rows:
@@ -155,7 +164,14 @@ async def ensure_wilayah_db() -> bool:
         if not ok:
             return False
 
-    return await _import_sql_to_db()
+    ok = await _import_sql_to_db()
+
+    # Hapus file SQL setelah berhasil import untuk hemat disk
+    if ok and SQL_PATH.exists():
+        SQL_PATH.unlink()
+        logger.info("[Cuaca] wilayah.sql dihapus setelah import.")
+
+    return ok
 
 
 # ---------------------------------------------------------------------------
@@ -171,22 +187,76 @@ async def _search_db(query: str) -> Optional[str]:
     """
     Cari kode adm4 (desa/kelurahan, 3 titik) di wilayah.db berdasarkan nama.
 
-    Strategi:
-    1. Exact match (case-insensitive) → prioritas tertinggi
-    2. LIKE '%query%' → ambil yang paling spesifik (level tertinggi)
+    Strategi prioritas:
+    1. Exact match (case-insensitive) di level **kota/kabupaten** (2 titik)
+       → ambil kelurahan pertama di bawahnya
+    2. Exact match di level **kecamatan** (2 titik) → ambil kelurahan pertama
+    3. Exact match di level **desa** (3 titik)
+    4. Fuzzy LIKE di semua level → paling spesifik
 
     Mengembalikan kode adm4 (4-level) atau None jika tidak ditemukan.
     """
     if not DB_PATH.exists():
         return None
 
-    q_upper = query.upper()
+    q_upper = query.upper().strip()
 
     try:
         async with aiosqlite.connect(str(DB_PATH)) as db:
             db.row_factory = aiosqlite.Row
 
-            # 1) Exact match di level desa (3 titik = adm4)
+            # Helper: cari kelurahan/desa pertama di bawah kode tertentu
+            async def _first_child(kode_prefix: str) -> Optional[str]:
+                async with db.execute(
+                    "SELECT kode FROM wilayah "
+                    "WHERE kode LIKE ? AND LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 3 "
+                    "LIMIT 1",
+                    (f"{kode_prefix}.%",),
+                ) as cur:
+                    row = await cur.fetchone()
+                    return row["kode"] if row else None
+
+            # 1) Exact match di level kota/kabupaten (1 titik / 2 level)
+            #    Cari "Kota {query}" dulu (prioritas), lalu "Kabupaten {query}", lalu nama persis
+            for prefix in ("KOTA", "KABUPATEN"):
+                async with db.execute(
+                    "SELECT kode FROM wilayah "
+                    "WHERE UPPER(nama) = ? "
+                    "AND LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 1 "
+                    "LIMIT 1",
+                    (f"{prefix} {q_upper}",),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        child = await _first_child(row["kode"])
+                        return child or row["kode"]
+
+            # Coba exact match tanpa prefix
+            async with db.execute(
+                "SELECT kode FROM wilayah "
+                "WHERE UPPER(nama) = ? "
+                "AND LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 1 "
+                "LIMIT 1",
+                (q_upper,),
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    child = await _first_child(row["kode"])
+                    return child or row["kode"]
+
+            # 2) Exact match di level kecamatan (2 titik)
+            async with db.execute(
+                "SELECT kode FROM wilayah "
+                "WHERE UPPER(nama) = ? AND LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 2 "
+                "LIMIT 1",
+                (q_upper,),
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    child = await _first_child(row["kode"])
+                    return child or row["kode"]
+
+            # 3) Exact match di level desa (3 titik)
             async with db.execute(
                 "SELECT kode FROM wilayah "
                 "WHERE UPPER(nama) = ? AND LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 3 "
@@ -197,12 +267,21 @@ async def _search_db(query: str) -> Optional[str]:
                 if row:
                     return row["kode"]
 
-            # 2) Fuzzy LIKE di semua level → pilih yang paling dalam (adm4 dulu)
+            # 4) Fuzzy LIKE → prioritaskan kota, kabupaten, kecamatan, lalu desa
+            #    Urutkan: kota/kabupaten didahulukan dengan bobot nama
             async with db.execute(
                 "SELECT kode, nama FROM wilayah "
                 "WHERE UPPER(nama) LIKE ? "
-                "ORDER BY LENGTH(kode) DESC "
-                "LIMIT 20",
+                "ORDER BY "
+                "  CASE "
+                "    WHEN UPPER(nama) LIKE 'KOTA %' THEN 1 "
+                "    WHEN UPPER(nama) LIKE 'KABUPATEN %' THEN 2 "
+                "    WHEN LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 1 THEN 3 "
+                "    WHEN LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 2 THEN 4 "
+                "    ELSE 5 "
+                "  END, "
+                "LENGTH(kode) ASC "
+                "LIMIT 30",
                 (f"%{q_upper}%",),
             ) as cur:
                 rows = await cur.fetchall()
@@ -210,24 +289,21 @@ async def _search_db(query: str) -> Optional[str]:
             if not rows:
                 return None
 
-            # Pilih yang paling spesifik (kode terpanjang = level terendah)
-            # Prioritaskan adm4 (3 titik), lalu adm3 (2 titik), dst.
-            best = max(rows, key=lambda r: _count_dots(r["kode"]))
-            kode = best["kode"]
+            # Kelompokkan berdasarkan level
+            adm2 = [r for r in rows if _count_dots(r["kode"]) == 1]  # kota/kab
+            adm3 = [r for r in rows if _count_dots(r["kode"]) == 2]  # kecamatan
+            adm4 = [r for r in rows if _count_dots(r["kode"]) == 3]  # desa
 
-            # Jika hanya sampai adm3 (kecamatan), cari satu desa di bawahnya
-            if _count_dots(kode) == 2:
-                async with db.execute(
-                    "SELECT kode FROM wilayah "
-                    "WHERE kode LIKE ? AND LENGTH(kode) - LENGTH(REPLACE(kode,'.','')) = 3 "
-                    "LIMIT 1",
-                    (f"{kode}.%",),
-                ) as cur:
-                    child = await cur.fetchone()
-                    if child:
-                        kode = child["kode"]
-
-            return kode if _count_dots(kode) >= 2 else None
+            if adm2:
+                child = await _first_child(adm2[0]["kode"])
+                return child or adm2[0]["kode"]
+            elif adm3:
+                child = await _first_child(adm3[0]["kode"])
+                return child or adm3[0]["kode"]
+            elif adm4:
+                return adm4[0]["kode"]
+            else:
+                return None
 
     except Exception as e:
         logger.error(f"[Cuaca] Error query wilayah.db: {e}")
@@ -352,7 +428,10 @@ class BMKGClient:
         for pat in patterns:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
-                return m.group(1).strip()
+                loc = m.group(1).strip()
+                # Bersihkan kata depan yang mungkin terikut
+                loc = re.sub(r'^(di|ke|daerah|wilayah)\s+', '', loc, flags=re.IGNORECASE).strip()
+                return loc if loc else None
         return None
 
 

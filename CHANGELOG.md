@@ -1,5 +1,22 @@
 # Changelog - Mirai Helix
 
+## [3.1.0] - 2026-05-02
+### ✨ Added
+- **`.env.example`**: File template konfigurasi environment dengan dokumentasi lengkap untuk semua variabel yang dibutuhkan.
+
+### ⚡ Improved
+- **`ai/cuaca.py`**: Auto-download database wilayah dari GitHub (cahyadsn/wilayah), parse SQL dump, dan simpan ke SQLite via `aiosqlite` (async, non-blocking).
+  - Download otomatis `wilayah.sql` (2.9 MB) saat pertama kali dibutuhkan.
+  - Import 91.162 baris data wilayah ke `data/wilayah.db`.
+  - File SQL otomatis dihapus setelah import berhasil (hemat disk).
+  - Pencarian lokasi menggunakan `aiosqlite` dengan prioritas: Kota → Kabupaten → Kecamatan → Desa.
+  - Lazy initialization: DB hanya di-download saat pertama kali cuaca diminta.
+- **`README.md`**: Ditambahkan informasi tentang `.env.example` dan database wilayah otomatis.
+- **`ai/cuaca.py -- BMKGClient.search_location_code()`**: Strategi pencarian ditingkatkan — "Bandung" sekarang mengarah ke **Kota Bandung** (32.73), bukan desa Bandung di Tulungagung.
+
+### 🧹 Cleanup
+- File SQL sementara (`wilayah.sql`) otomatis dihapus setelah di-import ke DB.
+
 ## [3.0.0] - 2026-05-01
 ### ✨ Added
 - **Model DeepSeek V4 Flash**: Dukungan model `deepseek-ai/deepseek-v4-flash` sebagai alternatif lebih ringan & cepat dari `deepseek-v4-pro`.

@@ -1,5 +1,8 @@
 # Mirai Helix 🤖✨
 
+![Discord](https://img.shields.io/badge/h.e.l.i.x-server-brightgreen?style=for-the-badge&logo=discord&logoColor=white)
+[![Discord](https://img.shields.io/discord/1388310480803598458?style=for-the-badge&logo=discord&label=HEALTH)](https://discord.gg/h7EUsuDjg5)
+
 Discord bot pintar dengan kepribadian "Mirai" yang bijaksana, kritis, namun tetap keibuan. Dibangun menggunakan `discord.py` dengan integrasi **Multi-Provider AI** (Gemini, Groq, DeepSeek V4 Pro/Flash) untuk analisis percakapan mendalam, pembuatan laporan otomatis, dan memori jangka panjang (Micro-RAG).
 
 ## ✨ Fitur Utama
@@ -11,8 +14,9 @@ Discord bot pintar dengan kepribadian "Mirai" yang bijaksana, kritis, namun teta
 - **📍 Channel Hasil Terpusat**: Tentukan channel khusus untuk laporan agar chat tidak berantakan.
 - **📂 Attachment Processing**: Membaca teks dari PDF, DOCX, XLSX, PPTX, dan TXT.
 - **🔄 Multi-Provider AI**: Gemini, Groq, DeepSeek V4 Pro, DeepSeek V4 Flash dengan mekanisme fallback.
+- **📍 Database Wilayah Offline**: Bot otomatis mendownload & meng-import database wilayah Kemendagri (~91rb lokasi) ke SQLite saat pertama kali `/cuaca` digunakan. File SQL dihapus setelah import untuk hemat disk.
 - **⚡ Module Manager**: Kontrol modul aktif/nonaktif dinamis tanpa restart.
-- **🌤️ Integrasi BMKG**: Data cuaca real-time dari BMKG.
+- **🌤️ Integrasi BMKG**: Data cuaca real-time dari BMKG dengan database wilayah offline (91.162 lokasi) via `aiosqlite` — download otomatis saat pertama digunakan.
 - **💻 Slash Commands Lengkap**: Modular, terorganisir per fitur.
 
 ## 🧠 DeepSeek Model Selection
@@ -29,7 +33,7 @@ Gunakan perintah `/deepseek model` untuk melihat dan mengganti model aktif.
 ## 🛠️ Teknologi
 
 - **Bahasa**: Python 3.11+
-- **Core**: `discord.py`, `aiohttp`
+- **Core**: `discord.py`, `aiohttp`, `aiosqlite`
 - **AI & LLM**:
   - Google Gemini API (Gemini 2.5 Flash)
   - Groq API (Llama 3.1)
@@ -64,13 +68,19 @@ pip install -r requirements.txt
 ```
 
 ### 4. Konfigurasi Environment
-Buat file `.env`:
+```bash
+cp .env.example .env
+```
+Lalu isi `.env` dengan token dan API key yang sesuai:
 ```env
 DISCORD_TOKEN=your_discord_bot_token
-GEMINI_KEYS=your_gemini_key_1,your_gemini_key_2
+GUILD_ID=your_discord_guild_id
+NVIDIA_API_KEY=your_nvidia_api_key_here
 GROQ_API_KEY=your_groq_key
-NVIDIA_API_KEY=your_nvidia_key_here
+GEMINI_KEYS=your_gemini_key_1,your_gemini_key_2
 ```
+
+> Lihat [.env.example](.env.example) untuk daftar lengkap variabel yang tersedia.
 
 ### 5. Jalankan Bot
 ```bash
@@ -155,6 +165,7 @@ mirai-helix/
 │   ├── rag_utils.py         # Manajemen profil & TTL
 │   └── logger.py            # Setup logging
 ├── .env                     # Konfigurasi sensitif (JANGAN di-commit)
+├── .env.example             # Template konfigurasi environment
 ├── requirements.txt         # Dependencies
 ├── main.py                  # Entry point
 ├── README.md
