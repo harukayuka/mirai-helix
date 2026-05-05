@@ -244,14 +244,18 @@ class GeminiClient:
     async def _get_weather_context(self, user_message: str) -> str:
         """Get weather context if user asks about weather."""
         # Trigger cuaca bila pesan mengandung kata kunci cuaca atau deskripsi cuaca umum
-        triggers = ["cuaca", "hujan", "panas", "mendung", "cerah"]
+        triggers = [
+            "cuaca", "hujan", "panas", "mendung", "cerah", "suhu",
+            "dingin", "angin", "berawan", "lembab", "kota", "bmkg",
+        ]
         if not any(kw in user_message.lower() for kw in triggers):
             return ""
         
         try:
             loc = self.bmkg.extract_location_from_text(user_message)
             if not loc:
-                return ""
+                # Jika ada trigger cuaca tapi lokasi tidak disebut, gunakan default (Jakarta)
+                loc = "Jakarta"
             
             code = await self.bmkg.search_location_code(loc)
             if not code:
@@ -262,7 +266,7 @@ class GeminiClient:
                 return ""
             
             weather_ctx = (
-                f"\n\n[DATA CUACA BMKG UNTUK {loc.upper()}]\n"
+                f"\n\n[DATA CUACA BMKG REAL-TIME UNTUK {loc.upper()}]\n"
                 f"Lokasi: {data['lokasi']['desa']}, {data['lokasi']['kecamatan']}, {data['lokasi']['kotkab']}\n"
                 "Prakiraan terdekat:\n"
             )
@@ -272,8 +276,10 @@ class GeminiClient:
                     f"Suhu {f['t']}°C, Kelembapan {f['hu']}%\n"
                 )
             weather_ctx += (
-                "\nBerikan data di atas dengan gaya ramah Mirai, "
-                "sertakan saran kesehatan bila relevan."
+                "\n⚠️ INSTRUKSI PENTING: Data cuaca di atas adalah data REAL-TIME dari BMKG."
+                "\nGunakan data ini untuk menjawab pertanyaan user. Jangan bilang kamu tidak punya akses "
+                "atau tidak bisa mengecek cuaca — karena data sudah tersedia di atas. "
+                "Jawab dengan gaya ramah Mirai dan sertakan saran kesehatan bila relevan."
             )
             return weather_ctx
         except Exception as e:

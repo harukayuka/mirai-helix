@@ -12,12 +12,23 @@ FIXED:
 """
 
 import aiohttp
+import sys, os
+# Ensure utils package is importable when running as script
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import aiosqlite
 import asyncio
 import re
 import os
+import json
 from typing import Any, Dict, Optional
 from pathlib import Path
+
+# Brotli opsional — fallback jika tidak terinstal
+try:
+    import brotli
+    _HAS_BROTLI = True
+except ImportError:
+    _HAS_BROTLI = False
 
 from utils.logger import setup_logging
 
@@ -319,6 +330,13 @@ class BMKGClient:
 
     def __init__(self):
         self._db_ready: Optional[bool] = None   # None = belum dicek
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def close(self):
+        """Tutup session aiohttp jika masih terbuka."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -333,13 +351,26 @@ class BMKGClient:
     async def _get_json(self, url: str, **kwargs) -> Optional[Dict]:
         """GET JSON via aiohttp dengan timeout."""
         timeout = aiohttp.ClientTimeout(total=10)
+        # Session di-reuse untuk performa lebih baik
+        if not self._session or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=timeout, auto_decompress=False)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, **kwargs) as resp:
-                    if resp.status != 200:
-                        logger.error(f"[BMKG] HTTP {resp.status} untuk {url}")
-                        return None
-                    return await resp.json()
+            async with self._session.get(url, **kwargs) as resp:
+                if resp.status != 200:
+                    logger.error(f"[BMKG] HTTP {resp.status} untuk {url}")
+                    return None
+                raw = await resp.read()
+                encoding = resp.headers.get("Content-Encoding", "")
+                if encoding == "br":
+                    if not _HAS_BROTLI:
+                        logger.warning("[BMKG] Brotli tidak terinstal, coba dekompresi aiohttp fallback...")
+                        # Fallback: buat session baru dengan auto_decompress=True
+                        async with aiohttp.ClientSession(timeout=timeout) as s2:
+                            async with s2.get(url, **kwargs) as resp2:
+                                raw = await resp2.read()
+                    else:
+                        raw = brotli.decompress(raw)
+                return json.loads(raw.decode("utf-8"))
         except asyncio.TimeoutError:
             logger.error(f"[BMKG] Timeout saat akses {url}")
             return None
@@ -418,20 +449,93 @@ class BMKGClient:
 
     def extract_location_from_text(self, text: str) -> Optional[str]:
         """Ekstrak nama lokasi dari teks natural language."""
+        # Kata yang TIDAK boleh jadi bagian nama lokasi (stop-words).
+        # Dipakai sebagai lookahead negatif di dalam _LOC.
+        _STOP_PAT = (
+            r"hari\s+ini|besok|sekarang|malam\s+ini|minggu\s+ini"
+            r"|gimana|berapa|nggak|tidak|enggak|ga\b|gak\b"
+            r"|cuaca|cuacanya|dong|yuk|ya\b|nih|deh"
+        )
+
+        # _LOC mencocokkan 1 atau lebih kata nama tempat, berhenti sebelum stop-word.
+        # Pola setiap "kata": diawali bukan stop-word, diikuti huruf unicode atau tanda hubung.
+        _WORD = (
+            r"(?!(?:" + _STOP_PAT + r")(?:\s|$))"
+            r"[A-Za-z\u00C0-\u024F\u1E00-\u1EFF][A-Za-z\u00C0-\u024F\u1E00-\u1EFF\-]*"
+        )
+        _LOC = rf"{_WORD}(?:[\s']{_WORD})*"
+
+        # Kata kondisi cuaca
+        _COND = r"(?:cuaca|hujan|ujan|panas|mendung|gerimis|cerah|suhu|dingin|angin|berawan|lembab|prakiraan|badai)"
+
+        # Akhiran opsional: kata waktu + tanda tanya
+        _TIME = r"(?:\s+(?:hari\s+ini|besok|sekarang|malam\s+ini|minggu\s+ini))?"
+        _TAIL = r"\s*\??\s*$"
+
         patterns = [
-            r"cuaca\s+(?:di|ke|daerah|wilayah)\s+([a-zA-Z\s]+?)(?:\s+(?:hari ini|besok|gimana|dong|yuk))?$",
-            r"bagaimana\s+cuaca\s+(?:di\s+)?([a-zA-Z\s]+?)(?:\s+(?:hari ini|besok))?$",
-            r"cek\s+cuaca\s+(?:di\s+)?([a-zA-Z\s]+)",
-            r"prakiraan\s+cuaca\s+(?:di\s+)?([a-zA-Z\s]+)",
-            r"cuaca\s+([a-zA-Z\s]+?)\s+(?:hari ini|besok|gimana)",
+            # 1. "[kondisi] di/ke/wilayah/daerah [lokasi] [waktu]?"
+            #    "cuaca di Bandung hari ini?", "hujan di Nusa Tenggara besok?"
+            rf"{_COND}\s+(?:di|ke|wilayah|daerah)\s+({_LOC}){_TIME}{_TAIL}",
+
+            # 2. "bagaimana/gimana/kayak gimana cuaca (di) [lokasi] [waktu]?"
+            #    "gimana cuaca Surabaya hari ini?"
+            rf"(?:bagaimana|gimana|kayak\s+gimana)\s+cuaca\s+(?:di\s+)?({_LOC}){_TIME}{_TAIL}",
+
+            # 3. "cek/lihat/info/infokan/tanya/tampilkan cuaca (di) [lokasi] [waktu]"
+            #    "cek cuaca Bandung besok"
+            rf"(?:cek|lihat|info|infokan|tanya|tampilkan)\s+cuaca\s+(?:di\s+)?({_LOC}){_TIME}{_TAIL}",
+
+            # 4. "cuaca [lokasi] [gimana/hari ini/besok/?]"
+            #    "cuaca Bogor?", "cuaca Jakarta gimana?"
+            rf"cuaca\s+({_LOC})(?:\s+(?:hari\s+ini|besok|gimana|sekarang|malam\s+ini))?\s*\??\s*$",
+
+            # 5. "prakiraan cuaca (di) [lokasi] [waktu]?"
+            #    "prakiraan cuaca di Medan"
+            rf"prakiraan\s+cuaca\s+(?:di\s+)?({_LOC}){_TIME}{_TAIL}",
+
+            # 6. "[hujan/panas] nggak/tidak/ga/gak/enggak (di) [lokasi] [waktu]?"
+            #    "hujan nggak di Depok?", "panas ga Malang?"
+            rf"(?:hujan|ujan|panas)\s+(?:nggak|tidak|ga|gak|enggak)\s+(?:di\s+)?({_LOC}){_TIME}{_TAIL}",
+
+            # 7. "(apa) bakal/akan/mau [hujan/panas] (di) [lokasi] [waktu]?"
+            #    "bakal hujan di Bogor?", "mau ujan Ciawi besok?"
+            rf"(?:apa\s+)?(?:bakal|akan|mau)\s+(?:hujan|ujan|panas)\s+(?:di\s+)?({_LOC}){_TIME}{_TAIL}",
+
+            # 8. "suhu (di) [lokasi] berapa?"
+            #    "suhu di Bandung berapa?"
+            rf"suhu\s+(?:di\s+)?({_LOC})\s+berapa{_TAIL}",
+
+            # 9. "berapa suhu/temperatur (di) [lokasi] [waktu]?"
+            #    "berapa suhu Yogyakarta sekarang?"
+            rf"berapa\s+(?:suhu|temperatur|temperature)\s+(?:di\s+)?({_LOC}){_TIME}{_TAIL}",
+
+            # 10. "[lokasi] hujan/panas nggak [waktu]?"
+            #     "Bandung hujan nggak besok?"
+            rf"({_LOC})\s+(?:hujan|ujan|panas)\s+(?:nggak|tidak|ga|gak|enggak){_TIME}{_TAIL}",
+
+            # 11. "[lokasi] cuaca [gimana/hari ini/besok]?"
+            #     "Bekasi cuaca gimana?", "Depok cuaca hari ini?"
+            rf"({_LOC})\s+cuaca(?:\s+(?:gimana|hari\s+ini|besok|sekarang))?\s*\??\s*$",
+
+            # 12. "mau/pergi/berangkat ke [lokasi] cuaca/cuacanya [gimana]?"
+            #     "mau ke Bali cuaca gimana?", "pergi ke Malang cuacanya?"
+            rf"(?:mau|pergi|berangkat)\s+ke\s+({_LOC})[\s,]+(?:cuaca|cuacanya){_TAIL}",
         ]
+
+        # Kata yang tidak dianggap nama lokasi (fallback cek setelah regex)
+        _SKIP = {
+            "hari ini", "besok", "sekarang", "malam ini", "minggu ini",
+            "yuk", "saja", "gimana", "dong", "ya", "nih", "deh",
+            "aku", "kamu", "kita", "sini", "sana",
+        }
+
         for pat in patterns:
-            m = re.search(pat, text, re.IGNORECASE)
+            m = re.search(pat, text.strip(), re.IGNORECASE)
             if m:
                 loc = m.group(1).strip()
-                # Bersihkan kata depan yang mungkin terikut
-                loc = re.sub(r'^(di|ke|daerah|wilayah)\s+', '', loc, flags=re.IGNORECASE).strip()
-                return loc if loc else None
+                if loc.lower() in _SKIP or not loc:
+                    continue
+                return loc
         return None
 
 

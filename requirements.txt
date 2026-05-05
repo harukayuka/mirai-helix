@@ -13,3 +13,4 @@ fpdf2>=2.7.0
 aiofiles>=0.8.0
 psutil>=5.9.0
 aiosqlite>=0.20.0
+brotli>=1.0.9
